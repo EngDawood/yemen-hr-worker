@@ -15,6 +15,7 @@ interface AtomEntry {
   published?: string;
   updated?: string;
   enclosure?: { '@_url'?: string } | string;
+  content?: string | { '#text'?: string; '@_type'?: string }; // Full job description from expanded RSS
 }
 
 interface AtomFeed {
@@ -109,6 +110,14 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
     // Generate ID from link (slug)
     const id = link ? extractJobId(link) : (typeof entry.id === 'string' ? entry.id : '');
 
+    // Extract content/description from expanded RSS feed
+    let description = '';
+    if (typeof entry.content === 'string') {
+      description = entry.content;
+    } else if (entry.content?.['#text']) {
+      description = entry.content['#text'];
+    }
+
     return {
       id,
       title,
@@ -116,6 +125,7 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
       link,
       pubDate: entry.published || entry.updated || '',
       imageUrl,
+      description,
     };
   });
 }

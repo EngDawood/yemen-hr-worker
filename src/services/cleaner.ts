@@ -2,9 +2,17 @@
  * HTML cleaner ported from n8n workflow.
  * Extracts and cleans job description from Yemen HR job pages.
  */
-export function cleanJobDescription(html: string): string {
+
+export interface ExtractedJobData {
+  description: string;
+  location?: string;
+  postedDate?: string;
+  deadline?: string;
+}
+
+export function cleanJobDescription(html: string): ExtractedJobData {
   if (!html) {
-    return 'No description available';
+    return { description: 'No description available' };
   }
 
   let text = html;
@@ -36,6 +44,29 @@ export function cleanJobDescription(html: string): string {
   text = text.replace(/[ \t]+/g, ' ');
   text = text.replace(/\n\s*\n\s*\n/g, '\n\n');
   text = text.trim();
+
+  // Extract structured data
+  const location = extractField(text, [
+    /Location[:\s]+([^\n]+)/i,
+    /الموقع[:\s]+([^\n]+)/i,
+    /Governorate[:\s]+([^\n]+)/i,
+    /City[:\s]+([^\n]+)/i,
+  ]);
+
+  const postedDate = extractField(text, [
+    /Posted[:\s]+([^\n]+)/i,
+    /تاريخ النشر[:\s]+([^\n]+)/i,
+    /Publication Date[:\s]+([^\n]+)/i,
+    /Date Posted[:\s]+([^\n]+)/i,
+  ]);
+
+  const deadline = extractField(text, [
+    /Deadline[:\s]+([^\n]+)/i,
+    /آخر موعد[:\s]+([^\n]+)/i,
+    /Closing Date[:\s]+([^\n]+)/i,
+    /Application Deadline[:\s]+([^\n]+)/i,
+    /Last Date[:\s]+([^\n]+)/i,
+  ]);
 
   // Extract relevant content
   const lines = text.split('\n');
@@ -77,5 +108,20 @@ export function cleanJobDescription(html: string): string {
   cleanedText = cleanedText.replace(/\s*\|$/gm, '');
   cleanedText = cleanedText.trim();
 
-  return cleanedText || 'No description available';
+  return {
+    description: cleanedText || 'No description available',
+    location: location || undefined,
+    postedDate: postedDate || undefined,
+    deadline: deadline || undefined,
+  };
+}
+
+function extractField(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  return null;
 }

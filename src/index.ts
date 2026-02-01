@@ -1,13 +1,13 @@
 import type { Env, JobItem, ProcessedJob } from './types';
 import { fetchRSSFeed } from './services/rss';
-import { scrapeJobPage } from './services/scraper';
 import { cleanJobDescription } from './services/cleaner';
 import { summarizeJob } from './services/gemini';
 import { sendTextMessage, sendPhotoMessage } from './services/telegram';
 import { isJobPosted, markJobAsPosted } from './services/storage';
 import { formatTelegramMessage, delay } from './utils/format';
 
-const DELAY_BETWEEN_POSTS_MS = 3000; // 3 seconds to avoid rate limits
+const DELAY_BETWEEN_POSTS_MS = 3000; // 3 seconds between posts
+const MAX_JOBS_PER_RUN = 10; // Limit jobs per run to stay within rate limits
 
 /**
  * Process all new jobs from RSS feed.
@@ -29,8 +29,13 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
       return { processed: 0, posted: 0 };
     }
 
-    // 2. Process each job sequentially
-    for (const job of jobs) {
+    // 2. Process each job sequentially (limit to MAX_JOBS_PER_RUN)
+    const jobsToProcess = jobs.slice(0, MAX_JOBS_PER_RUN);
+    if (jobs.length > MAX_JOBS_PER_RUN) {
+      console.log(`Limiting to ${MAX_JOBS_PER_RUN} jobs (${jobs.length - MAX_JOBS_PER_RUN} will be processed next hour)`);
+    }
+
+    for (const job of jobsToProcess) {
       processed++;
 
       // 3. Check if already posted
@@ -43,29 +48,29 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
       console.log(`Processing new job: ${job.title} (${job.id})`);
 
       try {
-        // 4. Scrape job page
-        const html = await scrapeJobPage(job.link);
+        // 4. Clean HTML from RSS content and extract structured data
+        const extractedData = cleanJobDescription(job.description || '');
 
-        // 5. Clean HTML
-        const description = cleanJobDescription(html);
-
-        // 6. Create processed job object
+        // 5. Create processed job object with extracted data
         const processedJob: ProcessedJob = {
           title: job.title,
           company: job.company,
           link: job.link,
-          description,
+          description: extractedData.description,
           imageUrl: job.imageUrl,
+          location: extractedData.location,
+          postedDate: extractedData.postedDate,
+          deadline: extractedData.deadline,
         };
 
-        // 7. Get AI summary
+        // 6. Get AI summary
         console.log(`Generating AI summary for: ${job.title}`);
-        const summary = await summarizeJob(processedJob, env.GEMINI_API_KEY);
+        const summary = await summarizeJob(processedJob, env.AI);
 
-        // 8. Format message
+        // 7. Format message
         const message = formatTelegramMessage(summary, job.link, job.imageUrl);
 
-        // 9. Send to Telegram
+        // 8. Send to Telegram
         console.log(`Sending to Telegram: ${job.title}`);
         let success: boolean;
 
@@ -84,7 +89,7 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
           );
         }
 
-        // 10. Mark as posted only if successful
+        // 9. Mark as posted only if successful
         if (success) {
           await markJobAsPosted(env, job.id, job.title);
           posted++;
@@ -94,7 +99,7 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
           // Don't mark as posted, will retry next hour
         }
 
-        // 11. Rate limit delay
+        // 10. Rate limit delay
         if (posted < jobs.length) {
           await delay(DELAY_BETWEEN_POSTS_MS);
         }

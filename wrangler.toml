@@ -2,6 +2,13 @@ name = "yemen-hr-worker"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
 [triggers]
 crons = ["0 * * * *"]  # Every hour
 
@@ -9,10 +16,17 @@ crons = ["0 * * * *"]  # Every hour
 binding = "POSTED_JOBS"
 id = "d56f24496a1a48d7bf2cb6a325533d5c"
 
+[ai]
+binding = "AI"
+
 [vars]
-RSS_FEED_URL = "https://rssbridge.prenghy.org/?action=display&bridge=XPathBridge&url=https://yemenhr.com/jobs&item=/html/body/div/main/div/div/div/div/div/div/table/tbody/tr&title=td%5B3%5D/div%5B1%5D/a%5B1%5D/child::node()&content=td%5B4%5D/div%5B1%5D/div%5B1%5D/div%5B1%5D/span%5B1%5D/a%5B1%5D/child::node()&raw_content=on&uri=td%5B3%5D/div%5B1%5D/a%5B1%5D/ancestor-or-self::node()/@href&author=td%5B2%5D/div%5B1%5D/div%5B1%5D/div%5B1%5D/a%5B1%5D/child::node()&timestamp=td%5B5%5D/span%5B1%5D//text()&enclosures=td%5B2%5D/div%5B1%5D/img%5B1%5D/@src&categories=&format=atom"
-TELEGRAM_CHAT_ID = "@hr_yemen"
+RSS_FEED_URL = "https://rssbridge.prenghy.org/?action=display&bridge=CssSelectorFeedExpanderBridge&feed=https://rssbridge.prenghy.org/?action%3Ddisplay%26bridge%3DXPathBridge%26url%3Dhttps%253A%252F%252Fyemenhr.com%252Fjobs%26item%3D%252Fhtml%252Fbody%252Fdiv%252Fmain%252Fdiv%252Fdiv%252Fdiv%252Fdiv%252Fdiv%252Fdiv%252Ftable%252Ftbody%252Ftr%26title%3Dtd%255B3%255D%252Fdiv%255B1%255D%252Fa%255B1%255D%252Fchild%253A%253Anode%2528%2529%26content%3Dtd%255B4%255D%252Fdiv%255B1%255D%252Fdiv%255B1%255D%252Fdiv%255B1%255D%252Fspan%255B1%255D%252Fa%255B1%255D%252Fchild%253A%253Anode%2528%2529%26raw_content%3Don%26uri%3Dtd%255B3%255D%252Fdiv%255B1%255D%252Fa%255B1%255D%252Fancestor-or-self%253A%253Anode%2528%2529%252F%2540href%26author%3Dtd%255B2%255D%252Fdiv%255B1%255D%252Fdiv%255B1%255D%252Fdiv%255B1%255D%252Fa%255B1%255D%252Fchild%253A%253Anode%2528%2529%26timestamp%3Dtd%255B5%255D%252Fspan%255B1%255D%252F%252Ftext%2528%2529%26enclosures%3Dtd%255B2%255D%252Fdiv%255B1%255D%252Fimg%255B1%255D%252F%2540src%26categories%3D%26format%3DAtom&content_selector=body+%3E+div.bg-gray-100+%3E+main+%3E+div+%3E+div:nth-child(5)&content_cleanup=div.bg-white.rounded-xl.shadow-lg.mb-8.no-print,div.countdown-timer,svg,a%5Bhref*=%22login%22%5D&dont_expand_metadata=on&discard_thumbnail=off&thumbnail_as_header=on&limit=5&format=Atom"
+# Production channel
+TELEGRAM_CHAT_ID = "-1001252486813"  # https://t.me/hr_yemen
+
+# Preview/Test channel
+PREVIEW_TELEGRAM_CHAT_ID = "-1003799523484"  # https://t.me/yemenjobss
 
 # Secrets (set via wrangler secret put):
-# - GEMINI_API_KEY
-# - TELEGRAM_BOT_TOKEN
+# - TELEGRAM_BOT_TOKEN (production)
+# - PREVIEW_TELEGRAM_BOT_TOKEN (preview/test)
