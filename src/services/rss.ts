@@ -1,11 +1,17 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { JobItem } from '../types';
 
+interface AtomLink {
+  '@_rel'?: string;
+  '@_type'?: string;
+  '@_href'?: string;
+}
+
 interface AtomEntry {
   id?: string;
-  title?: string;
+  title?: string | { '#text'?: string };
   author?: { name?: string } | string;
-  link?: { '@_href'?: string } | string;
+  link?: AtomLink | AtomLink[] | string;
   published?: string;
   updated?: string;
   enclosure?: { '@_url'?: string } | string;
@@ -46,10 +52,29 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
     : [result.feed.entry];
 
   return entries.map((entry): JobItem => {
-    // Extract link URL
+    // Extract title (may be string or object with #text)
+    let title = 'No Title';
+    if (typeof entry.title === 'string') {
+      title = entry.title;
+    } else if (entry.title?.['#text']) {
+      title = entry.title['#text'];
+    }
+
+    // Extract link URL (handle array of links)
     let link = '';
+    let imageUrl: string | null = null;
+
     if (typeof entry.link === 'string') {
       link = entry.link;
+    } else if (Array.isArray(entry.link)) {
+      // Multiple links - find alternate for job URL, enclosure for image
+      for (const l of entry.link) {
+        if (l['@_rel'] === 'alternate' && l['@_href']) {
+          link = l['@_href'];
+        } else if (l['@_rel'] === 'enclosure' && l['@_href']) {
+          imageUrl = l['@_href'];
+        }
+      }
     } else if (entry.link?.['@_href']) {
       link = entry.link['@_href'];
     }
@@ -62,12 +87,13 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
       company = entry.author.name;
     }
 
-    // Extract image URL from enclosure
-    let imageUrl: string | null = null;
-    if (typeof entry.enclosure === 'string') {
-      imageUrl = entry.enclosure;
-    } else if (entry.enclosure?.['@_url']) {
-      imageUrl = entry.enclosure['@_url'];
+    // Fallback: Extract image URL from enclosure element if not found in links
+    if (!imageUrl) {
+      if (typeof entry.enclosure === 'string') {
+        imageUrl = entry.enclosure;
+      } else if (entry.enclosure?.['@_url']) {
+        imageUrl = entry.enclosure['@_url'];
+      }
     }
 
     // Convert relative URL to absolute
@@ -75,12 +101,17 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
       imageUrl = 'https://yemenhr.com' + imageUrl;
     }
 
+    // Use entry.id if link extraction failed
+    if (!link && entry.id) {
+      link = entry.id;
+    }
+
     // Generate ID from link (slug)
-    const id = link ? extractJobId(link) : entry.id || '';
+    const id = link ? extractJobId(link) : (typeof entry.id === 'string' ? entry.id : '');
 
     return {
       id,
-      title: entry.title || 'No Title',
+      title,
       company,
       link,
       pubDate: entry.published || entry.updated || '',
