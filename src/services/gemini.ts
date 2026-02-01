@@ -44,47 +44,28 @@ ${job.description}
 IMPORTANT RULES:
 - ALWAYS respond in Arabic language ONLY
 - If the job description is in English, translate it to Arabic
-- If the job description is bilingual, provide the output in Arabic only
-- Keep the JOB TITLE exactly as it appears in the original (do not translate)
-- Keep the COMPANY NAME exactly as it appears in the original (do not translate)
-- Extract ALL information including company details, requirements, and application process
-- Keep formatting clean and organized
+- Keep the JOB TITLE and COMPANY NAME exactly as they appear (do not translate)
+- BE CONCISE - maximum 700 characters total
 - DO NOT use any markdown formatting (no **, no _, no []())
 - Use only plain text with emojis
 
-Provide this information:
+Provide this BRIEF summary:
 
-📋 Job Title / المسمى الوظيفي:
-${job.title}
+📋 ${job.title}
+🏢 ${job.company}
+📍 [الموقع]
+⏰ [آخر موعد]
 
-🏢 Organization / الجهة:
-${job.company}
-[جملة واحدة عن الشركة إن وجدت]
+📝 الوصف:
+[ملخص مختصر للوظيفة في 2-3 جمل]
 
-📍 Location / الموقع:
-[الموقع الجغرافي]
+✅ المتطلبات:
+[أهم 3-4 متطلبات فقط]
 
-📅 Posted / تاريخ النشر:
-[تاريخ النشر]
+📧 التقديم:
+[طريقة التقديم باختصار]
 
-⏰ Deadline / آخر موعد:
-[الموعد النهائي]
-
-━━━━━━━━━━━━━━━━━━━━
-
-📋 Job Description / الوصف الوظيفي:
-[قدم الوصف الكامل للوظيفة بالعربية مع الأقسام التالية:
-- المسؤوليات الرئيسية
-- المؤهلات المطلوبة
-- المهارات المطلوبة
-- أي تفاصيل أخرى ذات صلة]
-
-━━━━━━━━━━━━━━━━━━━━
-
-📧 How to Apply / كيفية التقديم:
-[تعليمات التقديم التفصيلية بالعربية بما في ذلك البريد الإلكتروني أو الرابط أو النموذج]
-
-احتفظ بالمجموع أقل من 3500 حرف.`;
+مهم جداً: احتفظ بالمجموع أقل من 700 حرف!`;
 
   // Retry loop with exponential backoff
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
