@@ -7,7 +7,8 @@ import { sendTextMessage, sendPhotoMessage } from './services/telegram';
 import { isJobPosted, markJobAsPosted } from './services/storage';
 import { formatTelegramMessage, delay } from './utils/format';
 
-const DELAY_BETWEEN_POSTS_MS = 3000; // 3 seconds to avoid rate limits
+const DELAY_BETWEEN_POSTS_MS = 5000; // 5 seconds (12 RPM, under Gemini's 15 RPM free tier limit)
+const MAX_JOBS_PER_RUN = 10; // Limit jobs per run to stay within rate limits
 
 /**
  * Process all new jobs from RSS feed.
@@ -29,8 +30,13 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
       return { processed: 0, posted: 0 };
     }
 
-    // 2. Process each job sequentially
-    for (const job of jobs) {
+    // 2. Process each job sequentially (limit to MAX_JOBS_PER_RUN)
+    const jobsToProcess = jobs.slice(0, MAX_JOBS_PER_RUN);
+    if (jobs.length > MAX_JOBS_PER_RUN) {
+      console.log(`Limiting to ${MAX_JOBS_PER_RUN} jobs (${jobs.length - MAX_JOBS_PER_RUN} will be processed next hour)`);
+    }
+
+    for (const job of jobsToProcess) {
       processed++;
 
       // 3. Check if already posted
