@@ -11,47 +11,59 @@ describe('cleanJobDescription', () => {
   it('should remove HTML tags from job content', () => {
     const html = 'Job Description <div>Hello <strong>World</strong></div>';
     const result = cleanJobDescription(html);
-    expect(result).not.toContain('<div>');
-    expect(result).not.toContain('<strong>');
-    expect(result).toContain('Hello');
-    expect(result).toContain('World');
+    expect(result.description).not.toContain('<div>');
+    expect(result.description).not.toContain('<strong>');
+    expect(result.description).toContain('Hello');
+    expect(result.description).toContain('World');
   });
 
   it('should decode HTML entities in job content', () => {
     const html = 'Job Description Hello &amp; World &quot;test&quot;';
     const result = cleanJobDescription(html);
-    expect(result).toContain('Hello & World "test"');
+    expect(result.description).toContain('Hello & World "test"');
   });
 
   it('should remove unwanted sections', () => {
     const html = 'Job Description details here Important Notes some notes to remove';
     const result = cleanJobDescription(html);
-    expect(result).not.toContain('Important Notes');
-    expect(result).not.toContain('some notes to remove');
+    expect(result.description).not.toContain('Important Notes');
+    expect(result.description).not.toContain('some notes to remove');
   });
 
   it('should convert br tags to newlines in job content', () => {
     const html = 'Job Description Line 1<br>Line 2<br/>Line 3';
     const result = cleanJobDescription(html);
-    expect(result).toContain('\n');
+    expect(result.description).toContain('\n');
   });
 
   it('should return fallback for empty input', () => {
     const result = cleanJobDescription('');
-    expect(result).toBe('No description available');
+    expect(result.description).toBe('No description available');
   });
 
   it('should return fallback when no job content markers found', () => {
     const html = 'Random content without job markers';
     const result = cleanJobDescription(html);
-    expect(result).toBe('No description available');
+    expect(result.description).toBe('No description available');
   });
 
   it('should extract content starting from job markers', () => {
     const html = 'Header stuff Vacancy id: 12345 This is the actual job content';
     const result = cleanJobDescription(html);
-    expect(result).toContain('Vacancy id');
-    expect(result).toContain('12345');
+    expect(result.description).toContain('Vacancy id');
+    expect(result.description).toContain('12345');
+  });
+
+  it('should extract location from content', () => {
+    const html = 'Job Description Location: Aden, Yemen\nSome other content';
+    const result = cleanJobDescription(html);
+    expect(result.location).toBe('Aden, Yemen');
+  });
+
+  it('should extract deadline from content', () => {
+    const html = 'Job Description Deadline: 15 Feb, 2026\nSome other content';
+    const result = cleanJobDescription(html);
+    expect(result.deadline).toBe('15 Feb, 2026');
   });
 });
 
@@ -63,7 +75,7 @@ describe('formatTelegramMessage', () => {
       null
     );
     expect(result.fullMessage).toContain('https://yemenhr.com/jobs/test');
-    expect(result.fullMessage).toContain('تابعونا على');
+    expect(result.fullMessage).toContain('رابط الوظيفة في YemenHR');
   });
 
   it('should detect valid image URL', () => {

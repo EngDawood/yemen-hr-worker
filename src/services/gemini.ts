@@ -1,21 +1,7 @@
 import type { ProcessedJob } from '../types';
 
 const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 5000; // 5 seconds
-
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-  error?: {
-    message?: string;
-    code?: number;
-  };
-}
+const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 
 /**
  * Delay execution for the specified milliseconds.
@@ -25,130 +11,121 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Translates and summarizes job posting using Google Gemini.
- * Prompt is ported from the n8n workflow.
+ * Translates and summarizes job posting using Cloudflare Workers AI (Qwen 2.5).
  */
 export async function summarizeJob(
   job: ProcessedJob,
-  apiKey: string
+  ai: Ai
 ): Promise<string> {
-  const prompt = `You are an expert job analyst. Analyze this job posting and provide a structured summary.
+  // Build the header with pre-extracted data
+  const header = `📋 المسمى الوظيفي:
+${job.title}
 
-Job Details:
-Title: ${job.title}
-Company: ${job.company}
-Link: ${job.link}
-Full Job Description:
+🏢 الجهة:
+${job.company}
+
+📍 الموقع:
+${job.location || 'غير محدد'}
+
+📅 تاريخ النشر:
+${job.postedDate || 'غير محدد'}
+
+⏰ آخر موعد للتقديم:
+${job.deadline || 'غير محدد'}
+
+━━━━━━━━━━━━━━━━━━━━`;
+
+  const prompt = `Translate and summarize this job posting to Arabic.
+
+Job Description:
 ${job.description}
 
-IMPORTANT RULES:
-- ALWAYS respond in Arabic language ONLY
-- If the job description is in English, translate it to Arabic
-- Keep the JOB TITLE and COMPANY NAME exactly as they appear (do not translate)
-- BE CONCISE - maximum 700 characters total
-- DO NOT use any markdown formatting (no **, no _, no []())
-- Use only plain text with emojis
+CRITICAL RULES:
+- DO NOT include any introduction or preamble
+- Respond ONLY in Arabic
+- BE CONCISE - maximum 400 characters for description, 200 for how to apply
+- NO markdown formatting (no **, no _, no []())
+- Use plain text only
 
-Provide this BRIEF summary:
+Output ONLY this format (nothing else):
 
-📋 ${job.title}
-🏢 ${job.company}
-📍 [الموقع]
-⏰ [آخر موعد]
+📋 الوصف الوظيفي:
+[ترجمة وملخص مختصر للوظيفة في 2-3 جمل بالعربية]
 
-📝 الوصف:
-[ملخص مختصر للوظيفة في 2-3 جمل]
+━━━━━━━━━━━━━━━━━━━━
 
-✅ المتطلبات:
-[أهم 3-4 متطلبات فقط]
-
-📧 التقديم:
-[طريقة التقديم باختصار]
-
-مهم جداً: احتفظ بالمجموع أقل من 700 حرف!`;
+📧 كيفية التقديم:
+[استخدم الرموز المناسبة فقط:]
+📩 إيميل: [إن وجد]
+🔗 فورم: [إن وجد رابط فورم]
+🌐 موقع: [إن وجد رابط موقع]
+📱 واتساب: [إن وجد]
+📞 هاتف: [إن وجد]`;
 
   // Retry loop with exponential backoff
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      const response = await ai.run(
+        '@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<typeof ai.run>[0],
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: prompt }],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 2048,
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
             },
-          }),
+          ],
+          max_tokens: 1024,
+          temperature: 0.7,
         }
       );
 
-      // Handle rate limiting (429) with exponential backoff
-      if (response.status === 429) {
-        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS; // 5s, 10s, 20s
-        console.log(`Rate limited (429), retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
-
+      // Handle response
+      if (!response || typeof response !== 'object') {
+        console.error('Invalid AI response format');
         if (attempt < MAX_RETRIES - 1) {
-          await delay(waitTime);
-          continue;
-        }
-
-        console.error('Max retries reached for rate limiting');
-        return getFallbackMessage();
-      }
-
-      // Handle other HTTP errors
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Gemini API error: ${response.status}`, errorText);
-
-        // Retry on 5xx server errors
-        if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
           const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-          console.log(`Server error (${response.status}), retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+          console.log(`Retrying after ${waitTime}ms...`);
           await delay(waitTime);
           continue;
         }
-
-        return getFallbackMessage();
+        return header + '\n\n📋 الوصف الوظيفي:\nالرجاء زيارة رابط الوظيفة للمزيد من التفاصيل.';
       }
 
-      const data: GeminiResponse = await response.json();
-
-      if (data.error) {
-        console.error('Gemini API error:', data.error.message);
-        return getFallbackMessage();
-      }
-
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Extract text from response
+      const text = 'response' in response ? (response as { response: string }).response : null;
 
       if (!text) {
-        console.error('No text in Gemini response');
-        return getFallbackMessage();
+        console.error('No text in AI response:', JSON.stringify(response));
+        if (attempt < MAX_RETRIES - 1) {
+          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+          console.log(`Empty response, retrying after ${waitTime}ms...`);
+          await delay(waitTime);
+          continue;
+        }
+        return header + '\n\n📋 الوصف الوظيفي:\nالرجاء زيارة رابط الوظيفة للمزيد من التفاصيل.';
       }
 
-      // Clean any markdown formatting
-      const cleanedText = text
+      // Clean any markdown formatting and remove preamble
+      let cleanedText = text
         .replace(/\*\*/g, '') // Remove bold
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2') // Convert [text](url) to text: url
         .replace(/_([^_]+)_/g, '$1'); // Remove italic
 
-      return cleanedText;
-    } catch (error) {
-      console.error(`Error calling Gemini API (attempt ${attempt + 1}):`, error);
+      // Remove any preamble before the actual content (starts with 📋)
+      const contentStart = cleanedText.indexOf('📋');
+      if (contentStart > 0) {
+        cleanedText = cleanedText.substring(contentStart);
+      }
 
-      // Retry on network errors
+      // Combine pre-built header with AI-generated content
+      return header + '\n\n' + cleanedText.trim();
+    } catch (error) {
+      console.error(`Error calling Workers AI (attempt ${attempt + 1}):`, error);
+
+      // Retry on errors
       if (attempt < MAX_RETRIES - 1) {
         const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-        console.log(`Network error, retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+        console.log(`Error occurred, retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
         await delay(waitTime);
         continue;
       }
@@ -156,9 +133,5 @@ Provide this BRIEF summary:
   }
 
   console.error('All retries exhausted');
-  return getFallbackMessage();
-}
-
-function getFallbackMessage(): string {
-  return '📋 وظيفة جديدة متاحة\n\nالرجاء زيارة رابط الوظيفة للمزيد من التفاصيل.';
+  return header + '\n\n📋 الوصف الوظيفي:\nالرجاء زيارة رابط الوظيفة للمزيد من التفاصيل.';
 }

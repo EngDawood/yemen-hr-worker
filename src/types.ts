@@ -1,6 +1,6 @@
 export interface Env {
   POSTED_JOBS: KVNamespace;
-  GEMINI_API_KEY: string;
+  AI: Ai;
   TELEGRAM_BOT_TOKEN: string;
   RSS_FEED_URL: string;
   TELEGRAM_CHAT_ID: string;
@@ -13,6 +13,7 @@ export interface JobItem {
   link: string;
   pubDate: string;
   imageUrl: string | null;
+  description?: string; // Full job description from expanded RSS feed
 }
 
 export interface ProcessedJob {
@@ -21,6 +22,9 @@ export interface ProcessedJob {
   link: string;
   description: string;
   imageUrl: string | null;
+  location?: string;
+  postedDate?: string;
+  deadline?: string;
 }
 
 export interface TelegramMessage {
