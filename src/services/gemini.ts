@@ -1,5 +1,8 @@
 import type { ProcessedJob } from '../types';
 
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 5000; // 5 seconds
+
 interface GeminiResponse {
   candidates?: Array<{
     content?: {
@@ -10,7 +13,15 @@ interface GeminiResponse {
   }>;
   error?: {
     message?: string;
+    code?: number;
   };
+}
+
+/**
+ * Delay execution for the specified milliseconds.
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -75,59 +86,96 @@ ${job.company}
 
 احتفظ بالمجموع أقل من 3500 حرف.`;
 
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2048,
+  // Retry loop with exponential backoff
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        }),
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [{ text: prompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 2048,
+            },
+          }),
+        }
+      );
+
+      // Handle rate limiting (429) with exponential backoff
+      if (response.status === 429) {
+        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS; // 5s, 10s, 20s
+        console.log(`Rate limited (429), retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+
+        if (attempt < MAX_RETRIES - 1) {
+          await delay(waitTime);
+          continue;
+        }
+
+        console.error('Max retries reached for rate limiting');
+        return getFallbackMessage();
       }
-    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Gemini API error: ${response.status}`, errorText);
-      return getFallbackMessage();
+      // Handle other HTTP errors
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Gemini API error: ${response.status}`, errorText);
+
+        // Retry on 5xx server errors
+        if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
+          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+          console.log(`Server error (${response.status}), retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+          await delay(waitTime);
+          continue;
+        }
+
+        return getFallbackMessage();
+      }
+
+      const data: GeminiResponse = await response.json();
+
+      if (data.error) {
+        console.error('Gemini API error:', data.error.message);
+        return getFallbackMessage();
+      }
+
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        console.error('No text in Gemini response');
+        return getFallbackMessage();
+      }
+
+      // Clean any markdown formatting
+      const cleanedText = text
+        .replace(/\*\*/g, '') // Remove bold
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2') // Convert [text](url) to text: url
+        .replace(/_([^_]+)_/g, '$1'); // Remove italic
+
+      return cleanedText;
+    } catch (error) {
+      console.error(`Error calling Gemini API (attempt ${attempt + 1}):`, error);
+
+      // Retry on network errors
+      if (attempt < MAX_RETRIES - 1) {
+        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+        console.log(`Network error, retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+        await delay(waitTime);
+        continue;
+      }
     }
-
-    const data: GeminiResponse = await response.json();
-
-    if (data.error) {
-      console.error('Gemini API error:', data.error.message);
-      return getFallbackMessage();
-    }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) {
-      console.error('No text in Gemini response');
-      return getFallbackMessage();
-    }
-
-    // Clean any markdown formatting
-    let cleanedText = text
-      .replace(/\*\*/g, '') // Remove bold
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2') // Convert [text](url) to text: url
-      .replace(/_([^_]+)_/g, '$1'); // Remove italic
-
-    return cleanedText;
-  } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    return getFallbackMessage();
   }
+
+  console.error('All retries exhausted');
+  return getFallbackMessage();
 }
 
 function getFallbackMessage(): string {
