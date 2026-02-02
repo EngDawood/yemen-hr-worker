@@ -6,7 +6,7 @@ import { sendTextMessage, sendPhotoMessage } from './services/telegram';
 import { isJobPosted, markJobAsPosted } from './services/storage';
 import { formatTelegramMessage, delay } from './utils/format';
 
-const DELAY_BETWEEN_POSTS_MS = 3000; // 3 seconds between posts
+const DELAY_BETWEEN_POSTS_MS = 1000; // 1 second between posts
 const MAX_JOBS_PER_RUN = 10; // Limit jobs per run to stay within rate limits
 
 /**
