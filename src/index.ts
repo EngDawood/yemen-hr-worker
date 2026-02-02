@@ -1,19 +1,20 @@
 import type { Env, JobItem, ProcessedJob } from './types';
 import { fetchRSSFeed } from './services/rss';
+import { fetchEOIJobs } from './services/eoi';
 import { cleanJobDescription } from './services/cleaner';
 import { summarizeJob } from './services/gemini';
 import { sendTextMessage, sendPhotoMessage } from './services/telegram';
-import { isJobPosted, markJobAsPosted, saveJobToDatabase } from './services/storage';
+import { isJobPosted, markJobAsPosted, saveJobToDatabase, isDuplicateJob, markDedupKey } from './services/storage';
 import { formatTelegramMessage, delay } from './utils/format';
 import { jsonResponse } from './utils/http';
 import { sendAlert } from './utils/alert';
 
 // Default values (can be overridden via env vars)
 const DEFAULT_DELAY_BETWEEN_POSTS_MS = 1000;
-const DEFAULT_MAX_JOBS_PER_RUN = 10;
+const DEFAULT_MAX_JOBS_PER_RUN = 15; // Increased to handle both sources
 
 /**
- * Process all new jobs from RSS feed.
+ * Process all new jobs from both Yemen HR and EOI sources.
  */
 async function processJobs(env: Env): Promise<{ processed: number; posted: number }> {
   console.log('Starting job processing...');
@@ -26,62 +27,99 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
   let posted = 0;
 
   try {
-    // 1. Fetch RSS feed
-    console.log('Fetching RSS feed...');
-    const jobs = await fetchRSSFeed(env.RSS_FEED_URL);
-    console.log(`Found ${jobs.length} jobs in RSS feed`);
+    // 1. Fetch jobs from both sources in parallel
+    console.log('Fetching jobs from Yemen HR and EOI...');
+    const [yemenHRResult, eoiResult] = await Promise.allSettled([
+      fetchRSSFeed(env.RSS_FEED_URL),
+      fetchEOIJobs(),
+    ]);
 
-    if (jobs.length === 0) {
-      console.log('No jobs found in RSS feed');
-      // Alert on empty RSS feed (might indicate scraping issue)
+    // Extract jobs, handling failures gracefully
+    const yemenHRJobs: JobItem[] = yemenHRResult.status === 'fulfilled' ? yemenHRResult.value : [];
+    const eoiJobs: JobItem[] = eoiResult.status === 'fulfilled' ? eoiResult.value : [];
+
+    // Log fetch results
+    if (yemenHRResult.status === 'rejected') {
+      console.error('Failed to fetch Yemen HR jobs:', yemenHRResult.reason);
+    } else {
+      console.log(`Found ${yemenHRJobs.length} jobs from Yemen HR`);
+    }
+    if (eoiResult.status === 'rejected') {
+      console.error('Failed to fetch EOI jobs:', eoiResult.reason);
+    } else {
+      console.log(`Found ${eoiJobs.length} jobs from EOI`);
+    }
+
+    // Tag Yemen HR jobs with source (EOI jobs already have source set)
+    const taggedYemenHRJobs = yemenHRJobs.map(job => ({ ...job, source: 'yemenhr' as const }));
+
+    // Merge all jobs
+    const allJobs = [...taggedYemenHRJobs, ...eoiJobs];
+    console.log(`Total jobs from all sources: ${allJobs.length}`);
+
+    if (allJobs.length === 0) {
+      console.log('No jobs found from any source');
       await sendAlert(env.TELEGRAM_BOT_TOKEN, env.ADMIN_CHAT_ID,
-        'RSS feed returned 0 jobs. Check if YemenHR or RSS Bridge is down.');
+        'No jobs found from any source. Check if Yemen HR, EOI, or RSS Bridge is down.');
       return { processed: 0, posted: 0 };
     }
 
-    // 2. Process each job sequentially (limit to maxJobs)
-    // Reverse to post oldest jobs first (queue order, not stack)
-    const jobsToProcess = jobs.slice(0, maxJobs).reverse();
-    if (jobs.length > maxJobs) {
-      console.log(`Limiting to ${maxJobs} jobs (${jobs.length - maxJobs} will be processed next hour)`);
+    // 2. Sort by date (oldest first for FIFO) and limit
+    const sortedJobs = allJobs.sort((a, b) =>
+      new Date(a.pubDate).getTime() - new Date(b.pubDate).getTime()
+    );
+    const jobsToProcess = sortedJobs.slice(0, maxJobs);
+
+    if (allJobs.length > maxJobs) {
+      console.log(`Limiting to ${maxJobs} jobs (${allJobs.length - maxJobs} will be processed next hour)`);
     }
 
     for (const job of jobsToProcess) {
       processed++;
+      const source = job.source || 'yemenhr';
 
-      // 3. Check if already posted
+      // 3. Check if already posted by source-specific ID
       const alreadyPosted = await isJobPosted(env, job.id);
       if (alreadyPosted) {
-        console.log(`Job already posted: ${job.id}`);
+        console.log(`Job already posted: ${job.id} (${source})`);
         continue;
       }
 
-      console.log(`Processing new job: ${job.title} (${job.id})`);
+      // 4. Check cross-source deduplication (title+company)
+      const isDuplicate = await isDuplicateJob(env, job.title, job.company);
+      if (isDuplicate) {
+        console.log(`Skipping duplicate job: "${job.title}" at "${job.company}" (${source})`);
+        // Mark the source-specific ID so we don't check again
+        await markJobAsPosted(env, job.id, job.title);
+        continue;
+      }
+
+      console.log(`Processing new job: ${job.title} (${job.id}) from ${source}`);
 
       try {
-        // 4. Clean HTML from RSS content and extract structured data
+        // 5. Clean HTML and extract structured data
         const extractedData = cleanJobDescription(job.description || '');
 
-        // 5. Create processed job object with extracted data
+        // 6. Create processed job object with extracted data
         const processedJob: ProcessedJob = {
           title: job.title,
           company: job.company,
           link: job.link,
-          description: extractedData.description,
+          description: extractedData.description || job.description || '',
           imageUrl: job.imageUrl,
           location: extractedData.location,
           postedDate: extractedData.postedDate,
           deadline: extractedData.deadline,
         };
 
-        // 6. Get AI summary
+        // 7. Get AI summary
         console.log(`Generating AI summary for: ${job.title}`);
         const summary = await summarizeJob(processedJob, env.AI);
 
-        // 7. Format message
+        // 8. Format message
         const message = formatTelegramMessage(summary, job.link, job.imageUrl, env.LINKEDIN_URL);
 
-        // 8. Send to Telegram
+        // 9. Send to Telegram
         console.log(`Sending to Telegram: ${job.title}`);
         let success: boolean;
 
@@ -100,20 +138,23 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
           );
         }
 
-        // 9. Mark as posted only if successful
+        // 10. Mark as posted only if successful
         if (success) {
+          // Mark source-specific ID
           await markJobAsPosted(env, job.id, job.title);
+          // Mark dedup key (title+company) for cross-source deduplication
+          await markDedupKey(env, job.title, job.company);
           // Save full job data to D1 for ML training
-          await saveJobToDatabase(env, job.id, processedJob, job.description || '', summary);
+          await saveJobToDatabase(env, job.id, processedJob, job.description || '', summary, source);
           posted++;
-          console.log(`Successfully posted: ${job.title}`);
+          console.log(`Successfully posted: ${job.title} (${source})`);
         } else {
           console.error(`Failed to post: ${job.title}`);
           // Don't mark as posted, will retry next hour
         }
 
-        // 10. Rate limit delay
-        if (posted < jobs.length) {
+        // 11. Rate limit delay
+        if (posted < jobsToProcess.length) {
           await delay(delayMs);
         }
       } catch (error) {
@@ -184,8 +225,9 @@ export default {
 
     // Default response
     return jsonResponse({
-      name: 'Yemen HR Bot',
-      description: 'Monitors Yemen HR for new jobs and posts to Telegram',
+      name: 'Yemen Jobs Bot',
+      description: 'Monitors Yemen HR and EOI Yemen for new jobs and posts to Telegram',
+      sources: ['Yemen HR (via RSS Bridge)', 'EOI Yemen (eoi-ye.com)'],
       endpoints: {
         '/__scheduled': 'Manually trigger job processing',
         '/health': 'Health check',

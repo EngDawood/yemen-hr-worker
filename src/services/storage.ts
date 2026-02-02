@@ -1,4 +1,5 @@
-import type { Env, PostedJobRecord, ProcessedJob } from '../types';
+import type { Env, PostedJobRecord, ProcessedJob, JobSource } from '../types';
+import { normalizeJobKey } from './dedup';
 
 const TTL_30_DAYS = 30 * 24 * 60 * 60; // 30 days in seconds
 
@@ -26,6 +27,33 @@ export async function markJobAsPosted(
   };
 
   await env.POSTED_JOBS.put(key, JSON.stringify(record), {
+    expirationTtl: TTL_30_DAYS,
+  });
+}
+
+/**
+ * Check if a job is a cross-source duplicate using title+company.
+ */
+export async function isDuplicateJob(
+  env: Env,
+  title: string,
+  company: string
+): Promise<boolean> {
+  const key = normalizeJobKey(title, company);
+  const value = await env.POSTED_JOBS.get(key);
+  return value !== null;
+}
+
+/**
+ * Mark a job's dedup key as posted (for cross-source deduplication).
+ */
+export async function markDedupKey(
+  env: Env,
+  title: string,
+  company: string
+): Promise<void> {
+  const key = normalizeJobKey(title, company);
+  await env.POSTED_JOBS.put(key, new Date().toISOString(), {
     expirationTtl: TTL_30_DAYS,
   });
 }
@@ -59,14 +87,15 @@ export async function saveJobToDatabase(
   jobId: string,
   job: ProcessedJob,
   rawDescription: string,
-  aiSummary: string
+  aiSummary: string,
+  source: JobSource = 'yemenhr'
 ): Promise<void> {
   try {
     await env.JOBS_DB.prepare(`
       INSERT OR REPLACE INTO jobs
       (id, title, company, location, description_raw, description_clean,
-       ai_summary_ar, image_url, source_url, posted_at, word_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ai_summary_ar, image_url, source_url, posted_at, word_count, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       jobId,
       job.title,
@@ -78,7 +107,8 @@ export async function saveJobToDatabase(
       job.imageUrl || null,
       job.link,
       new Date().toISOString(),
-      job.description.split(/\s+/).length
+      job.description.split(/\s+/).length,
+      source
     ).run();
   } catch (error) {
     console.error('Failed to save job to D1:', error);

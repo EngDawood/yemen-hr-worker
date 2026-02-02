@@ -11,8 +11,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   posted_at TEXT,
   scraped_at TEXT DEFAULT (datetime('now')),
   word_count INTEGER,
-  has_salary INTEGER DEFAULT 0
+  has_salary INTEGER DEFAULT 0,
+  source TEXT DEFAULT 'yemenhr'
 );
 
 CREATE INDEX IF NOT EXISTS idx_posted_at ON jobs(posted_at);
 CREATE INDEX IF NOT EXISTS idx_company ON jobs(company);
+CREATE INDEX IF NOT EXISTS idx_source ON jobs(source);
