@@ -1,7 +1,7 @@
 import type { TelegramMessage } from '../types';
 
 const MAX_CAPTION_LENGTH = 1024; // Telegram photo caption limit
-const LINKEDIN_URL = 'https://www.linkedin.com/in/eng-dawood-saleh';
+const DEFAULT_LINKEDIN_URL = 'https://www.linkedin.com/in/eng-dawood-saleh';
 
 /**
  * Format the final Telegram message with footer.
@@ -10,8 +10,10 @@ const LINKEDIN_URL = 'https://www.linkedin.com/in/eng-dawood-saleh';
 export function formatTelegramMessage(
   summary: string,
   jobLink: string,
-  imageUrl: string | null
+  imageUrl: string | null,
+  linkedinUrl?: string
 ): TelegramMessage {
+  const LINKEDIN_URL = linkedinUrl || DEFAULT_LINKEDIN_URL;
   // Clean any markdown formatting from summary
   let cleanedSummary = summary
     .replace(/\*\*/g, '') // Remove bold
