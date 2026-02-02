@@ -12,6 +12,8 @@ export interface Env {
   LINKEDIN_URL?: string;
 }
 
+export type JobSource = 'yemenhr' | 'eoi';
+
 export interface JobItem {
   id: string;
   title: string;
@@ -20,6 +22,7 @@ export interface JobItem {
   pubDate: string;
   imageUrl: string | null;
   description?: string; // Full job description from expanded RSS feed
+  source?: JobSource; // Job source for cross-source deduplication
 }
 
 export interface ProcessedJob {
