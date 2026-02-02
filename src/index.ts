@@ -3,7 +3,7 @@ import { fetchRSSFeed } from './services/rss';
 import { cleanJobDescription } from './services/cleaner';
 import { summarizeJob } from './services/gemini';
 import { sendTextMessage, sendPhotoMessage } from './services/telegram';
-import { isJobPosted, markJobAsPosted } from './services/storage';
+import { isJobPosted, markJobAsPosted, saveJobToDatabase } from './services/storage';
 import { formatTelegramMessage, delay } from './utils/format';
 
 const DELAY_BETWEEN_POSTS_MS = 1000; // 1 second between posts
@@ -92,6 +92,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
         // 9. Mark as posted only if successful
         if (success) {
           await markJobAsPosted(env, job.id, job.title);
+          // Save full job data to D1 for ML training
+          await saveJobToDatabase(env, job.id, processedJob, job.description || '', summary);
           posted++;
           console.log(`Successfully posted: ${job.title}`);
         } else {
@@ -161,6 +163,16 @@ export default {
       );
     }
 
+    // Export jobs data for ML training
+    if (url.pathname === '/api/jobs') {
+      const { results } = await env.JOBS_DB.prepare(
+        'SELECT * FROM jobs ORDER BY posted_at DESC'
+      ).all();
+      return new Response(JSON.stringify(results), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     // Default response
     return new Response(
       JSON.stringify({
@@ -169,6 +181,7 @@ export default {
         endpoints: {
           '/__scheduled': 'Manually trigger job processing',
           '/health': 'Health check',
+          '/api/jobs': 'Export all jobs data (JSON)',
         },
       }),
       {

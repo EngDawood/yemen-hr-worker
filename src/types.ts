@@ -1,5 +1,6 @@
 export interface Env {
   POSTED_JOBS: KVNamespace;
+  JOBS_DB: D1Database;
   AI: Ai;
   TELEGRAM_BOT_TOKEN: string;
   RSS_FEED_URL: string;

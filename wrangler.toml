@@ -16,6 +16,11 @@ crons = ["0 * * * *"]  # Every hour
 binding = "POSTED_JOBS"
 id = "d56f24496a1a48d7bf2cb6a325533d5c"
 
+[[d1_databases]]
+binding = "JOBS_DB"
+database_name = "yemen-jobs"
+database_id = "7e1e3ed7-1a37-4e81-a198-08a6080fff8a"
+
 [ai]
 binding = "AI"
 
@@ -34,6 +39,11 @@ name = "yemen-hr-worker-preview"
 [[env.preview.kv_namespaces]]
 binding = "POSTED_JOBS"
 id = "6f106aa745654020a7ac382ff5a8cc32"  # Separate KV for preview
+
+[[env.preview.d1_databases]]
+binding = "JOBS_DB"
+database_name = "yemen-jobs"
+database_id = "7e1e3ed7-1a37-4e81-a198-08a6080fff8a"
 
 [env.preview.ai]
 binding = "AI"

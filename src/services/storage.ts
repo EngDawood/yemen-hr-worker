@@ -1,4 +1,4 @@
-import type { Env, PostedJobRecord } from '../types';
+import type { Env, PostedJobRecord, ProcessedJob } from '../types';
 
 const TTL_30_DAYS = 30 * 24 * 60 * 60; // 30 days in seconds
 
@@ -48,5 +48,40 @@ export async function getPostedJob(
     return JSON.parse(value) as PostedJobRecord;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Save full job data to D1 database for ML training.
+ */
+export async function saveJobToDatabase(
+  env: Env,
+  jobId: string,
+  job: ProcessedJob,
+  rawDescription: string,
+  aiSummary: string
+): Promise<void> {
+  try {
+    await env.JOBS_DB.prepare(`
+      INSERT OR REPLACE INTO jobs
+      (id, title, company, location, description_raw, description_clean,
+       ai_summary_ar, image_url, source_url, posted_at, word_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      jobId,
+      job.title,
+      job.company || null,
+      job.location || null,
+      rawDescription || null,
+      job.description,
+      aiSummary,
+      job.imageUrl || null,
+      job.link,
+      new Date().toISOString(),
+      job.description.split(/\s+/).length
+    ).run();
+  } catch (error) {
+    console.error('Failed to save job to D1:', error);
+    // Don't throw - D1 failure shouldn't stop Telegram posting
   }
 }
