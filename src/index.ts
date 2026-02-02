@@ -40,7 +40,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
     }
 
     // 2. Process each job sequentially (limit to maxJobs)
-    const jobsToProcess = jobs.slice(0, maxJobs);
+    // Reverse to post oldest jobs first (queue order, not stack)
+    const jobsToProcess = jobs.slice(0, maxJobs).reverse();
     if (jobs.length > maxJobs) {
       console.log(`Limiting to ${maxJobs} jobs (${jobs.length - maxJobs} will be processed next hour)`);
     }
