@@ -1,7 +1,7 @@
 import type { Env, JobItem, ProcessedJob } from './types';
 import type { TelegramUpdate } from './types/telegram';
 import { fetchRSSFeed } from './services/rss';
-import { fetchEOIJobs, fetchEOIJobDetail, buildEnrichedDescription } from './services/eoi';
+import { fetchEOIJobs, fetchEOIJobDetail, buildEnrichedDescription, formatEOIDate } from './services/eoi';
 import { cleanJobDescription } from './services/cleaner';
 import { summarizeJob, summarizeEOIJob } from './services/gemini';
 import { sendTextMessage, sendPhotoMessage, sendAlert } from './services/telegram';
@@ -13,6 +13,35 @@ import { jsonResponse } from './utils/http';
 // Default values (can be overridden via env vars)
 const DEFAULT_DELAY_BETWEEN_POSTS_MS = 1000;
 const DEFAULT_MAX_JOBS_PER_RUN = 15; // Increased to handle both sources
+const DEPLOY_VERSION_KEY = 'meta:deployed_version';
+
+/**
+ * Send a deploy notification if this is a new version.
+ * Checks KV for the last known version and compares to current.
+ */
+async function checkDeployNotification(env: Env): Promise<void> {
+  try {
+    const currentVersion = env.CF_VERSION_METADATA?.id;
+    if (!currentVersion) return;
+
+    const lastVersion = await env.POSTED_JOBS.get(DEPLOY_VERSION_KEY);
+    if (lastVersion === currentVersion) return;
+
+    // New deploy detected — update KV first to avoid duplicate notifications
+    await env.POSTED_JOBS.put(DEPLOY_VERSION_KEY, currentVersion);
+
+    const environment = env.ENVIRONMENT || 'unknown';
+    const timestamp = new Date().toISOString();
+    const message = `🚀 <b>New Deploy</b>\n\n<b>Environment:</b> ${environment}\n<b>Version:</b> <code>${currentVersion}</code>\n<b>Time:</b> ${timestamp}`;
+
+    if (env.ADMIN_CHAT_ID) {
+      await sendTextMessage(env.TELEGRAM_BOT_TOKEN, env.ADMIN_CHAT_ID, message);
+    }
+  } catch (error) {
+    // Don't let deploy notification failures affect normal operation
+    console.error('Deploy notification error:', error);
+  }
+}
 
 /**
  * Process all new jobs from both Yemen HR and EOI sources.
@@ -94,7 +123,7 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
       if (isDuplicate) {
         console.log(`Skipping duplicate job: "${job.title}" at "${job.company}" (${source})`);
         // Mark the source-specific ID so we don't check again
-        await markJobAsPosted(env, job.id, job.title);
+        await markJobAsPosted(env, job.id, job.title, job.company);
         skipped++;
         continue;
       }
@@ -137,8 +166,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
               description: enrichedDesc,
               imageUrl: detail.imageUrl || job.imageUrl,
               location: metaMap['الموقع'],
-              postedDate: metaMap['تاريخ النشر'],
-              deadline: detail.deadline || metaMap['آخر موعد للتقديم'],
+              postedDate: formatEOIDate(metaMap['تاريخ النشر']),
+              deadline: formatEOIDate(detail.deadline || metaMap['آخر موعد للتقديم']),
               howToApply: detail.howToApply,
               applicationLinks: detail.applicationLinks,
             };
@@ -151,8 +180,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
               description: job.description || '',
               imageUrl: job.imageUrl,
               location: metaMap['الموقع'],
-              postedDate: metaMap['تاريخ النشر'],
-              deadline: metaMap['آخر موعد للتقديم'],
+              postedDate: formatEOIDate(metaMap['تاريخ النشر']),
+              deadline: formatEOIDate(metaMap['آخر موعد للتقديم']),
             };
           }
 
@@ -182,8 +211,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
           summary = await summarizeJob(processedJob, env.AI);
         }
 
-        // 8. Format message
-        const message = formatTelegramMessage(summary, job.link, job.imageUrl, env.LINKEDIN_URL);
+        // 8. Format message (use processedJob.imageUrl which includes detail page logos)
+        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL);
 
         // 9. Send to Telegram
         console.log(`Sending to Telegram: ${job.title}`);
@@ -207,11 +236,13 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
         // 10. Mark as posted only if successful
         if (success) {
           // Mark source-specific ID
-          await markJobAsPosted(env, job.id, job.title);
+          await markJobAsPosted(env, job.id, job.title, job.company);
           // Mark dedup key (title+company) for cross-source deduplication
           await markDedupKey(env, job.title, job.company);
-          // Save full job data to D1 for ML training
-          await saveJobToDatabase(env, job.id, processedJob, job.description || '', summary, source);
+          // Save full job data to D1 for ML training (skip in preview to avoid contamination)
+          if (env.ENVIRONMENT !== 'preview') {
+            await saveJobToDatabase(env, job.id, processedJob, job.description || '', summary, source);
+          }
           posted++;
           console.log(`Successfully posted: ${job.title} (${source})`);
         } else {
@@ -258,6 +289,7 @@ export default {
     ctx: ExecutionContext
   ): Promise<void> {
     console.log(`Cron triggered at ${new Date().toISOString()}`);
+    ctx.waitUntil(checkDeployNotification(env));
     ctx.waitUntil(processJobs(env));
   },
 
@@ -271,11 +303,14 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
 
+    // Check for new deploy and notify admin
+    ctx.waitUntil(checkDeployNotification(env));
+
     // Telegram webhook endpoint (for admin commands)
     if (url.pathname === '/webhook' && request.method === 'POST') {
       try {
         const update = await request.json() as TelegramUpdate;
-        return await handleWebhook(update, env, () => processJobs(env));
+        return await handleWebhook(update, env, ctx, () => processJobs(env));
       } catch (error) {
         console.error('Webhook error:', error);
         return new Response('Bad Request', { status: 400 });

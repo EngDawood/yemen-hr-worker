@@ -2,10 +2,12 @@ export interface Env {
   POSTED_JOBS: KVNamespace;
   JOBS_DB: D1Database;
   AI: Ai;
+  CF_VERSION_METADATA: { id: string; tag?: string };
   TELEGRAM_BOT_TOKEN: string;
   RSS_FEED_URL: string;
   TELEGRAM_CHAT_ID: string;
   // Optional configuration (with defaults)
+  ENVIRONMENT?: string; // "production" | "preview"
   ADMIN_CHAT_ID?: string;
   MAX_JOBS_PER_RUN?: string;
   DELAY_BETWEEN_POSTS_MS?: string;
@@ -49,4 +51,5 @@ export interface TelegramMessage {
 export interface PostedJobRecord {
   postedAt: string;
   title: string;
+  company?: string;
 }

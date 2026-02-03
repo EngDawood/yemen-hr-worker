@@ -1,5 +1,20 @@
 import type { EOIJob } from './types';
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Format EOI date from DD-MM-YYYY to DD Mon, YYYY.
+ */
+export function formatEOIDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})(.*)$/);
+  if (!match) return dateStr;
+  const [, day, monthNum, year, rest] = match;
+  const monthIdx = parseInt(monthNum, 10) - 1;
+  if (monthIdx < 0 || monthIdx > 11) return dateStr;
+  return `${day} ${MONTH_NAMES[monthIdx]}, ${year}${rest}`;
+}
+
 /**
  * Parse job listings from HTML string.
  */

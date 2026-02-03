@@ -5,6 +5,29 @@ const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 
 /**
+ * Extract text content from Workers AI response.
+ * Handles both standard Workers AI format ({ response: string })
+ * and OpenAI chat completion format ({ choices: [{ message: { content: string } }] }).
+ */
+function extractAIText(response: unknown): string | null {
+  if (!response || typeof response !== 'object') return null;
+  const obj = response as Record<string, unknown>;
+
+  // Workers AI standard format
+  if ('response' in obj && typeof obj.response === 'string') {
+    return obj.response || null;
+  }
+
+  // OpenAI chat completion format (used by Qwen3 and other models)
+  if ('choices' in obj && Array.isArray(obj.choices)) {
+    const content = (obj.choices as Array<{ message?: { content?: string } }>)[0]?.message?.content;
+    return content || null;
+  }
+
+  return null;
+}
+
+/**
  * Build the shared header used by all job messages.
  */
 export function buildJobHeader(job: ProcessedJob): string {
@@ -102,23 +125,11 @@ async function callWorkersAI(
         }
       );
 
-      // Handle response
-      if (!response || typeof response !== 'object') {
-        console.error(`Invalid AI response format (${sourceLabel})`);
-        if (attempt < MAX_RETRIES - 1) {
-          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-          console.log(`Retrying after ${waitTime}ms...`);
-          await delay(waitTime);
-          continue;
-        }
-        return buildNoAIFallback(job);
-      }
-
-      // Extract text from response
-      const text = 'response' in response ? (response as { response: string }).response : null;
+      // Extract text from response (handles both Workers AI and OpenAI formats)
+      const text = extractAIText(response);
 
       if (!text) {
-        console.error(`No text in AI response (${sourceLabel}):`, JSON.stringify(response));
+        console.error(`No text in AI response (${sourceLabel}):`, JSON.stringify(response).substring(0, 500));
         if (attempt < MAX_RETRIES - 1) {
           const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
           console.log(`Empty response, retrying after ${waitTime}ms...`);

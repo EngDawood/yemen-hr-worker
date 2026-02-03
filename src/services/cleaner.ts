@@ -54,10 +54,10 @@ export function cleanJobDescription(html: string): ExtractedJobData {
   ]);
 
   const postedDate = extractField(text, [
-    /Posted[:\s]+([^\n]+)/i,
-    /تاريخ النشر[:\s]+([^\n]+)/i,
-    /Publication Date[:\s]+([^\n]+)/i,
-    /Date Posted[:\s]+([^\n]+)/i,
+    /Posted[:\s]+([^\n|]+?)(?:\s*\||\s*Deadline|\s*$)/i,
+    /تاريخ النشر[:\s]+([^\n|]+?)(?:\s*\||\s*$)/i,
+    /Publication Date[:\s]+([^\n|]+?)(?:\s*\||\s*$)/i,
+    /Date Posted[:\s]+([^\n|]+?)(?:\s*\||\s*$)/i,
   ]);
 
   const deadline = extractField(text, [
