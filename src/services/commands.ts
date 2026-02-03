@@ -3,17 +3,22 @@
  * These commands are only available in the preview environment.
  */
 
-import type { Env } from '../types';
+import type { Env, ProcessedJob } from '../types';
 import type { TelegramUpdate, ParsedCommand } from '../types/telegram';
 import {
   listRecentJobs,
   getJobById,
   deleteJobFromKV,
+  deleteDedupKey,
+  getPostedJobRecord,
   searchJobsInKV,
 } from './storage';
-import { sendTextMessage } from './telegram';
-import { fetchEOIJobs } from './eoi';
+import { sendTextMessage, sendPhotoMessage } from './telegram';
+import { fetchEOIJobs, fetchEOIJobDetail, buildEnrichedDescription, formatEOIDate } from './eoi';
 import { fetchRSSFeed } from './rss';
+import { cleanJobDescription } from './cleaner';
+import { summarizeJob, summarizeEOIJob } from './gemini';
+import { formatTelegramMessage } from '../utils/format';
 
 const COMMANDS_HELP = `
 📋 <b>Available Commands</b>
@@ -22,9 +27,10 @@ const COMMANDS_HELP = `
 /jobs - List recent jobs from KV (last 10)
 /job [id] - View details of a specific job
 /search [keyword] - Find jobs by title/company
-/clear [id] - Remove job from KV (allows re-posting)
+/clear [id|all] - Remove job + dedup key from KV
 /status - Bot status info
 /run - Manually trigger job processing
+/test - Test pipeline with 1 job per source (no KV writes)
 
 <b>Debug Commands:</b>
 /eoi - Fetch and show EOI jobs (live)
@@ -88,6 +94,7 @@ function isAuthorized(
 export async function handleWebhook(
   update: TelegramUpdate,
   env: Env,
+  ctx: ExecutionContext,
   triggerProcessing: () => Promise<{ processed: number; posted: number; skipped: number; failed: number }>
 ): Promise<Response> {
   const parsed = parseCommand(update);
@@ -100,6 +107,11 @@ export async function handleWebhook(
   // Security: Only respond to authorized admin in private chat
   const chatType = update.message?.chat.type || 'unknown';
   if (!isAuthorized(parsed.userId, parsed.chatId, chatType, env.ADMIN_CHAT_ID)) {
+    return new Response('OK', { status: 200 });
+  }
+
+  // Environment guard: block commands in production
+  if (env.ENVIRONMENT === 'production') {
     return new Response('OK', { status: 200 });
   }
 
@@ -135,7 +147,7 @@ export async function handleWebhook(
 
       case 'clear':
         if (args.length === 0) {
-          response = '❌ Usage: /clear [id]';
+          response = '❌ Usage: /clear [id|all]';
         } else {
           response = await handleClear(env, args[0]);
         }
@@ -146,7 +158,23 @@ export async function handleWebhook(
         break;
 
       case 'run':
-        response = await handleRun(triggerProcessing);
+        // Respond immediately, process in background
+        ctx.waitUntil((async () => {
+          try {
+            const result = await triggerProcessing();
+            await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId),
+              `✅ <b>Processing Complete</b>\n\nProcessed: ${result.processed}\nPosted: ${result.posted}\nSkipped: ${result.skipped}\nFailed: ${result.failed}`);
+          } catch (error) {
+            await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId),
+              `❌ Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        })());
+        response = '⏳ Processing started... Results will be sent when complete.';
+        break;
+
+      case 'test':
+        ctx.waitUntil(handleTest(env, String(chatId)));
+        response = '🧪 Test started... 1 job from each source will be processed and posted.';
         break;
 
       case 'eoi':
@@ -233,17 +261,45 @@ async function handleSearch(env: Env, keyword: string): Promise<string> {
 }
 
 /**
- * Handle /clear <id> command - remove job from KV.
+ * Handle /clear <id|all> command - remove job + dedup key from KV.
  */
-async function handleClear(env: Env, jobId: string): Promise<string> {
-  const job = await getJobById(env, jobId);
+async function handleClear(env: Env, target: string): Promise<string> {
+  if (target === 'all') {
+    // Clear all job: and dedup: prefixed keys
+    const jobList = await env.POSTED_JOBS.list({ prefix: 'job:', limit: 1000 });
+    const dedupList = await env.POSTED_JOBS.list({ prefix: 'dedup:', limit: 1000 });
 
-  if (!job) {
-    return `❌ Job not found: <code>${jobId}</code>`;
+    const deletePromises = [
+      ...jobList.keys.map(k => env.POSTED_JOBS.delete(k.name)),
+      ...dedupList.keys.map(k => env.POSTED_JOBS.delete(k.name)),
+    ];
+    await Promise.all(deletePromises);
+
+    return `✅ Cleared all KV keys.\n\nDeleted: ${jobList.keys.length} job keys + ${dedupList.keys.length} dedup keys.`;
   }
 
-  await deleteJobFromKV(env, jobId);
-  return `✅ Cleared job from KV: <code>${jobId}</code>\n\nThis job can now be re-posted.`;
+  // Clear single job by ID
+  const record = await getPostedJobRecord(env, target);
+
+  if (!record) {
+    return `❌ Job not found: <code>${target}</code>`;
+  }
+
+  // Delete the job key
+  await deleteJobFromKV(env, target);
+
+  // Also delete the dedup key if we have company info
+  let dedupCleared = false;
+  if (record.company) {
+    await deleteDedupKey(env, record.title, record.company);
+    dedupCleared = true;
+  }
+
+  const dedupNote = dedupCleared
+    ? '\nAlso cleared dedup key (title+company).'
+    : '\n<i>No company stored — dedup key not cleared (old record).</i>';
+
+  return `✅ Cleared job from KV: <code>${target}</code>${dedupNote}\n\nThis job can now be re-posted.`;
 }
 
 /**
@@ -251,10 +307,11 @@ async function handleClear(env: Env, jobId: string): Promise<string> {
  */
 async function handleStatus(env: Env): Promise<string> {
   const jobs = await listRecentJobs(env, 100);
+  const environment = env.ENVIRONMENT || 'unknown';
 
   return `🤖 <b>Yemen Jobs Bot Status</b>
 
-<b>Environment:</b> Preview
+<b>Environment:</b> ${environment}
 <b>Jobs in KV:</b> ${jobs.length}+
 <b>Chat ID:</b> ${env.TELEGRAM_CHAT_ID}
 
@@ -262,21 +319,130 @@ async function handleStatus(env: Env): Promise<string> {
 }
 
 /**
- * Handle /run command - trigger job processing.
+ * Handle /test command - process 1 job from each source through full pipeline.
+ * No KV checks, no KV writes. Pure output test.
  */
-async function handleRun(
-  triggerProcessing: () => Promise<{ processed: number; posted: number; skipped: number; failed: number }>
-): Promise<string> {
-  try {
-    const result = await triggerProcessing();
-    return `✅ <b>Processing Complete</b>
+async function handleTest(env: Env, adminChatId: string): Promise<void> {
+  const results: string[] = [];
 
-Processed: ${result.processed}
-Posted: ${result.posted}
-Skipped: ${result.skipped}
-Failed: ${result.failed}`;
+  try {
+    // Fetch jobs from both sources in parallel
+    const [yemenHRResult, eoiResult] = await Promise.allSettled([
+      fetchRSSFeed(env.RSS_FEED_URL),
+      fetchEOIJobs(),
+    ]);
+
+    // Process 1 Yemen HR job
+    if (yemenHRResult.status === 'fulfilled' && yemenHRResult.value.length > 0) {
+      const job = yemenHRResult.value[0];
+      try {
+        const extracted = cleanJobDescription(job.description || '');
+        const processedJob: ProcessedJob = {
+          title: job.title,
+          company: job.company,
+          link: job.link,
+          description: extracted.description || job.description || '',
+          imageUrl: job.imageUrl,
+          location: extracted.location,
+          postedDate: extracted.postedDate,
+          deadline: extracted.deadline,
+        };
+
+        const summary = await summarizeJob(processedJob, env.AI);
+        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL);
+
+        let success: boolean;
+        if (message.hasImage && message.imageUrl) {
+          success = await sendPhotoMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, message.imageUrl, message.fullMessage);
+        } else {
+          success = await sendTextMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, message.fullMessage);
+        }
+
+        results.push(`Yemen HR: ${success ? '✅' : '❌'} "${job.title}"`);
+      } catch (error) {
+        results.push(`Yemen HR: ❌ Error - ${error instanceof Error ? error.message : 'Unknown'}`);
+      }
+    } else {
+      const reason = yemenHRResult.status === 'rejected' ? yemenHRResult.reason : 'No jobs found';
+      results.push(`Yemen HR: ⚠️ ${reason}`);
+    }
+
+    // Process 1 EOI job
+    if (eoiResult.status === 'fulfilled' && eoiResult.value.length > 0) {
+      const job = eoiResult.value[0];
+      try {
+        // Parse metadata
+        const metaLines = (job.description || '').split('\n');
+        const metaMap: Record<string, string> = {};
+        for (const line of metaLines) {
+          const [key, ...vals] = line.split(': ');
+          if (key && vals.length > 0) metaMap[key.trim()] = vals.join(': ').trim();
+        }
+
+        // Fetch detail page
+        const detail = await fetchEOIJobDetail(job.link);
+
+        let processedJob: ProcessedJob;
+        if (detail) {
+          const enrichedDesc = buildEnrichedDescription(
+            {
+              category: metaMap['الفئة'],
+              location: metaMap['الموقع'],
+              postDate: metaMap['تاريخ النشر'],
+              deadline: metaMap['آخر موعد للتقديم'],
+            },
+            detail
+          );
+          processedJob = {
+            title: job.title,
+            company: job.company,
+            link: job.link,
+            description: enrichedDesc,
+            imageUrl: detail.imageUrl || job.imageUrl,
+            location: metaMap['الموقع'],
+            postedDate: formatEOIDate(metaMap['تاريخ النشر']),
+            deadline: formatEOIDate(detail.deadline || metaMap['آخر موعد للتقديم']),
+            howToApply: detail.howToApply,
+            applicationLinks: detail.applicationLinks,
+          };
+        } else {
+          processedJob = {
+            title: job.title,
+            company: job.company,
+            link: job.link,
+            description: job.description || '',
+            imageUrl: job.imageUrl,
+            location: metaMap['الموقع'],
+            postedDate: formatEOIDate(metaMap['تاريخ النشر']),
+            deadline: formatEOIDate(metaMap['آخر موعد للتقديم']),
+          };
+        }
+
+        const summary = await summarizeEOIJob(processedJob, env.AI);
+        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL);
+
+        let success: boolean;
+        if (message.hasImage && message.imageUrl) {
+          success = await sendPhotoMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, message.imageUrl, message.fullMessage);
+        } else {
+          success = await sendTextMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, message.fullMessage);
+        }
+
+        results.push(`EOI: ${success ? '✅' : '❌'} "${job.title}"`);
+      } catch (error) {
+        results.push(`EOI: ❌ Error - ${error instanceof Error ? error.message : 'Unknown'}`);
+      }
+    } else {
+      const reason = eoiResult.status === 'rejected' ? eoiResult.reason : 'No jobs found';
+      results.push(`EOI: ⚠️ ${reason}`);
+    }
+
+    // Send summary to admin
+    await sendTextMessage(env.TELEGRAM_BOT_TOKEN, adminChatId,
+      `🧪 <b>Test Complete</b>\n\n${results.join('\n')}\n\n<i>No KV writes were made.</i>`);
   } catch (error) {
-    return `❌ Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    await sendTextMessage(env.TELEGRAM_BOT_TOKEN, adminChatId,
+      `🧪 Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
