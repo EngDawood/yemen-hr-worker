@@ -4,12 +4,11 @@ import { fetchRSSFeed } from './services/rss';
 import { fetchEOIJobs, fetchEOIJobDetail, buildEnrichedDescription } from './services/eoi';
 import { cleanJobDescription } from './services/cleaner';
 import { summarizeJob, summarizeEOIJob } from './services/gemini';
-import { sendTextMessage, sendPhotoMessage } from './services/telegram';
+import { sendTextMessage, sendPhotoMessage, sendAlert } from './services/telegram';
 import { isJobPosted, markJobAsPosted, saveJobToDatabase, isDuplicateJob, markDedupKey } from './services/storage';
 import { handleWebhook } from './services/commands';
 import { formatTelegramMessage, delay } from './utils/format';
 import { jsonResponse } from './utils/http';
-import { sendAlert } from './utils/alert';
 
 // Default values (can be overridden via env vars)
 const DEFAULT_DELAY_BETWEEN_POSTS_MS = 1000;
