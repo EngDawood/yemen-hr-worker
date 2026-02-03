@@ -12,17 +12,23 @@ import {
   searchJobsInKV,
 } from './storage';
 import { sendTextMessage } from './telegram';
+import { fetchEOIJobs } from './eoi';
+import { fetchRSSFeed } from './rss';
 
 const COMMANDS_HELP = `
 📋 <b>Available Commands</b>
 
 /help - Show this help message
-/jobs - List recent jobs (last 10)
+/jobs - List recent jobs from KV (last 10)
 /job [id] - View details of a specific job
 /search [keyword] - Find jobs by title/company
 /clear [id] - Remove job from KV (allows re-posting)
 /status - Bot status info
 /run - Manually trigger job processing
+
+<b>Debug Commands:</b>
+/eoi - Fetch and show EOI jobs (live)
+/yemenhr - Fetch and show Yemen HR jobs (live)
 
 <i>Note: Commands only work in preview environment.</i>
 `.trim();
@@ -82,7 +88,7 @@ function isAuthorized(
 export async function handleWebhook(
   update: TelegramUpdate,
   env: Env,
-  triggerProcessing: () => Promise<{ processed: number; posted: number }>
+  triggerProcessing: () => Promise<{ processed: number; posted: number; skipped: number; failed: number }>
 ): Promise<Response> {
   const parsed = parseCommand(update);
 
@@ -141,6 +147,14 @@ export async function handleWebhook(
 
       case 'run':
         response = await handleRun(triggerProcessing);
+        break;
+
+      case 'eoi':
+        response = await handleEOIJobs();
+        break;
+
+      case 'yemenhr':
+        response = await handleYemenHRJobs(env);
         break;
 
       default:
@@ -251,15 +265,79 @@ async function handleStatus(env: Env): Promise<string> {
  * Handle /run command - trigger job processing.
  */
 async function handleRun(
-  triggerProcessing: () => Promise<{ processed: number; posted: number }>
+  triggerProcessing: () => Promise<{ processed: number; posted: number; skipped: number; failed: number }>
 ): Promise<string> {
   try {
     const result = await triggerProcessing();
     return `✅ <b>Processing Complete</b>
 
 Processed: ${result.processed}
-Posted: ${result.posted}`;
+Posted: ${result.posted}
+Skipped: ${result.skipped}
+Failed: ${result.failed}`;
   } catch (error) {
     return `❌ Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
+}
+
+/**
+ * Handle /eoi command - fetch and display EOI jobs.
+ */
+async function handleEOIJobs(): Promise<string> {
+  try {
+    const jobs = await fetchEOIJobs();
+
+    if (jobs.length === 0) {
+      return '📭 No jobs found from EOI.';
+    }
+
+    const lines = [`🌐 <b>EOI Jobs (Live Fetch)</b>\n`];
+    lines.push(`Total: ${jobs.length} jobs\n`);
+
+    for (const job of jobs.slice(0, 10)) {
+      lines.push(`• <code>${job.id}</code>`);
+      lines.push(`  ${job.title}`);
+      lines.push(`  ${job.company}`);
+      lines.push(`  <i>${job.pubDate}</i>\n`);
+    }
+
+    if (jobs.length > 10) {
+      lines.push(`<i>...and ${jobs.length - 10} more</i>`);
+    }
+
+    return lines.join('\n');
+  } catch (error) {
+    return `❌ Failed to fetch EOI jobs: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
+}
+
+/**
+ * Handle /yemenhr command - fetch and display Yemen HR jobs.
+ */
+async function handleYemenHRJobs(env: Env): Promise<string> {
+  try {
+    const jobs = await fetchRSSFeed(env.RSS_FEED_URL);
+
+    if (jobs.length === 0) {
+      return '📭 No jobs found from Yemen HR.';
+    }
+
+    const lines = [`🇾🇪 <b>Yemen HR Jobs (Live Fetch)</b>\n`];
+    lines.push(`Total: ${jobs.length} jobs\n`);
+
+    for (const job of jobs.slice(0, 10)) {
+      lines.push(`• <code>${job.id}</code>`);
+      lines.push(`  ${job.title}`);
+      lines.push(`  ${job.company}`);
+      lines.push(`  <i>${job.pubDate}</i>\n`);
+    }
+
+    if (jobs.length > 10) {
+      lines.push(`<i>...and ${jobs.length - 10} more</i>`);
+    }
+
+    return lines.join('\n');
+  } catch (error) {
+    return `❌ Failed to fetch Yemen HR jobs: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
 }

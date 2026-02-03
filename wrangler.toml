@@ -30,7 +30,7 @@ RSS_FEED_URL = "https://rssbridge.prenghy.org/?action=display&bridge=CssSelector
 TELEGRAM_CHAT_ID = "-1001252486813"  # https://t.me/hr_yemen
 # Configuration variables
 ADMIN_CHAT_ID = "801062947"  # Personal Telegram ID for alerts
-MAX_JOBS_PER_RUN = "10"
+MAX_JOBS_PER_RUN = "25"
 DELAY_BETWEEN_POSTS_MS = "1000"
 LINKEDIN_URL = "https://www.linkedin.com/in/eng-dawood-saleh"
 
@@ -61,7 +61,7 @@ RSS_FEED_URL = "https://rssbridge.prenghy.org/?action=display&bridge=CssSelector
 TELEGRAM_CHAT_ID = "-1003799523484"  # https://t.me/yemenjobss (preview)
 # Configuration variables (same as production)
 ADMIN_CHAT_ID = "801062947"  # Personal Telegram ID for alerts
-MAX_JOBS_PER_RUN = "10"
+MAX_JOBS_PER_RUN = "25"
 DELAY_BETWEEN_POSTS_MS = "1000"
 LINKEDIN_URL = "https://www.linkedin.com/in/eng-dawood-saleh"
 
