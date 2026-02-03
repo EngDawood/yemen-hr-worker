@@ -221,17 +221,47 @@ export async function fetchEOIJobDetail(url: string): Promise<EOIJobDetail | nul
       return null;
     }
 
-    // Extract description from detail-adv div
-    const descMatch = html.match(/<div class="detail-adv[^"]*">([\s\S]*?)<\/div>\s*(?:<div class="(?:list-meta|share-section|sidebar)|<\/section)/);
-    const descriptionHtml = descMatch ? descMatch[1].trim() : '';
+    // Extract description from detail-adv div (greedy match to end of div)
+    const descMatch = html.match(/<div class="detail-adv[^"]*">([\s\S]*?)<\/div>\s*<\/div>/);
+    let descriptionHtml = descMatch ? descMatch[1].trim() : '';
 
-    // Extract company logo
-    const logoMatch = html.match(/<img[^>]+src="(https:\/\/eoi-ye\.com\/storage\/users\/[^"]+)"/);
-    const imageUrl = logoMatch ? logoMatch[1] : null;
+    // If first regex fails, try broader match (content between detail-adv and next major section)
+    if (!descriptionHtml) {
+      const startIdx = html.indexOf('class="detail-adv');
+      if (startIdx > -1) {
+        const contentStart = html.indexOf('>', startIdx) + 1;
+        // Find end by looking for common section boundaries
+        const endPatterns = ['class="div-apply"', 'class="panel"', 'class="sidebar"', 'class="col-md-4"'];
+        let endIdx = html.length;
+        for (const pat of endPatterns) {
+          const idx = html.indexOf(pat, contentStart);
+          if (idx > -1 && idx < endIdx) endIdx = idx;
+        }
+        descriptionHtml = html.substring(contentStart, endIdx).trim();
+      }
+    }
 
-    // Extract deadline+time from list-meta
-    const deadlineMatch = html.match(/الموعد الاخير[\s\S]*?<[^>]*>([^<]+)<\/(?:span|div|p)/);
-    const deadline = deadlineMatch ? deadlineMatch[1].trim() : null;
+    // Strip MS Word artifacts before processing
+    descriptionHtml = descriptionHtml
+      .replace(/<o:p[^>]*>[\s\S]*?<\/o:p>/gi, '')
+      .replace(/<!\[if[^>]*>[\s\S]*?<!\[endif\]>/gi, '')
+      .replace(/class="Mso[^"]*"/gi, '')
+      .replace(/style="[^"]*mso-[^"]*"/gi, '');
+
+    // Extract company logo (from storage/users path, skip site logos)
+    const logoMatches = [...html.matchAll(/<img[^>]+src="(https:\/\/eoi-ye\.com\/storage\/users\/[^"]+)"/g)];
+    const imageUrl = logoMatches.length > 0 ? logoMatches[0][1] : null;
+
+    // Extract deadline: <span class="end_date">الموعد الاخير : DD-MM-YYYY </span><span> الوقت: HH:MM</span>
+    const deadlineDateMatch = html.match(/الموعد الاخير\s*:\s*(\d{2}-\d{2}-\d{4})/);
+    const deadlineTimeMatch = html.match(/الوقت:\s*(\d{2}:\d{2})/);
+    let deadline: string | null = null;
+    if (deadlineDateMatch) {
+      deadline = deadlineDateMatch[1];
+      if (deadlineTimeMatch) {
+        deadline += ' ' + deadlineTimeMatch[1];
+      }
+    }
 
     // Extract how-to-apply info
     const applyData = extractHowToApply(descriptionHtml);
@@ -264,6 +294,12 @@ export function cleanEOIDescription(html: string): string {
   if (!html) return '';
 
   let text = html;
+
+  // Strip MS Word artifacts
+  text = text.replace(/<o:p[^>]*>[\s\S]*?<\/o:p>/gi, '');
+  text = text.replace(/<!\[if[^>]*>[\s\S]*?<!\[endif\]>/gi, '');
+  // Strip base64 embedded images
+  text = text.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
 
   // Convert headings to text with newlines
   text = text.replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n$1\n');
@@ -312,12 +348,12 @@ export function extractHowToApply(html: string): { text: string; links: string[]
   const emails: string[] = [];
   const phones: string[] = [];
 
-  // Find how-to-apply section (various possible headings)
-  const applyMatch = html.match(/(?:How\s+to\s+Apply|طريقة\s+التقديم|Application\s+Process|كيفية\s+التقديم)([\s\S]*?)(?:<h[1-6]|<\/div>\s*<div class="(?:list-meta|share)|$)/i);
+  // Find how-to-apply section (various possible headings, tolerant of HTML tags between words but not arbitrary text)
+  const applyMatch = html.match(/(?:How(?:\s|<[^>]*>)*to(?:\s|<[^>]*>)*Apply|طريقة\s+التقديم|Application\s+(?:Information|Process)|كيفية\s+التقديم)([\s\S]*?)$/i);
   const applyHtml = applyMatch ? applyMatch[1] : '';
 
-  // Also search the full HTML for application-relevant data
-  const searchHtml = applyHtml || html;
+  // Always search full HTML for application links (they may appear outside the apply section)
+  const searchHtml = html;
 
   // Extract URLs (Google Forms, websites)
   const urlRegex = /https?:\/\/[^\s"'<>)]+/g;
