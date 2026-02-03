@@ -121,7 +121,7 @@ Output ONLY this format (nothing else):
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await ai.run(
-        '@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<typeof ai.run>[0],
+        '@cf/qwen/qwen3-30b-a3b-fp8' as Parameters<typeof ai.run>[0],
         {
           messages: [
             {
@@ -244,7 +244,7 @@ Output ONLY this format (nothing else):
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await ai.run(
-        '@cf/meta/llama-3.3-70b-instruct-fp8-fast' as Parameters<typeof ai.run>[0],
+        '@cf/qwen/qwen3-30b-a3b-fp8' as Parameters<typeof ai.run>[0],
         {
           messages: [
             {
