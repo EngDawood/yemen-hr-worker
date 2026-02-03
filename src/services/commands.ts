@@ -18,9 +18,9 @@ const COMMANDS_HELP = `
 
 /help - Show this help message
 /jobs - List recent jobs (last 10)
-/job &lt;id&gt; - View details of a specific job
-/search &lt;keyword&gt; - Find jobs by title/company
-/clear &lt;id&gt; - Remove job from KV (allows re-posting)
+/job [id] - View details of a specific job
+/search [keyword] - Find jobs by title/company
+/clear [id] - Remove job from KV (allows re-posting)
 /status - Bot status info
 /run - Manually trigger job processing
 
@@ -113,7 +113,7 @@ export async function handleWebhook(
 
       case 'job':
         if (args.length === 0) {
-          response = '❌ Usage: /job <id>';
+          response = '❌ Usage: /job [id]';
         } else {
           response = await handleJobDetails(env, args[0]);
         }
@@ -121,7 +121,7 @@ export async function handleWebhook(
 
       case 'search':
         if (args.length === 0) {
-          response = '❌ Usage: /search <keyword>';
+          response = '❌ Usage: /search [keyword]';
         } else {
           response = await handleSearch(env, args.join(' '));
         }
@@ -129,7 +129,7 @@ export async function handleWebhook(
 
       case 'clear':
         if (args.length === 0) {
-          response = '❌ Usage: /clear <id>';
+          response = '❌ Usage: /clear [id]';
         } else {
           response = await handleClear(env, args[0]);
         }
@@ -169,8 +169,7 @@ async function handleJobsList(env: Env): Promise<string> {
 
   const lines = ['📋 <b>Recent Jobs</b>\n'];
   for (const job of jobs) {
-    const shortId = job.id.length > 20 ? job.id.substring(0, 20) + '...' : job.id;
-    lines.push(`• <code>${shortId}</code>`);
+    lines.push(`• <code>${job.id}</code>`);
     lines.push(`  ${job.title}`);
     lines.push(`  <i>${job.postedAt}</i>\n`);
   }
@@ -208,8 +207,7 @@ async function handleSearch(env: Env, keyword: string): Promise<string> {
 
   const lines = [`🔍 <b>Search Results for "${keyword}"</b>\n`];
   for (const job of jobs.slice(0, 10)) {
-    const shortId = job.id.length > 20 ? job.id.substring(0, 20) + '...' : job.id;
-    lines.push(`• <code>${shortId}</code>`);
+    lines.push(`• <code>${job.id}</code>`);
     lines.push(`  ${job.title}\n`);
   }
 
