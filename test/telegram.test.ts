@@ -34,6 +34,7 @@ describe('sendTextMessage', () => {
         body: JSON.stringify({
           chat_id: CHAT_ID,
           text: 'Hello World',
+          parse_mode: 'HTML',
           disable_web_page_preview: false,
         }),
       }

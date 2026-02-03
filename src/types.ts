@@ -23,6 +23,8 @@ export interface JobItem {
   imageUrl: string | null;
   description?: string; // Full job description from expanded RSS feed
   source?: JobSource; // Job source for cross-source deduplication
+  howToApply?: string; // How to apply instructions
+  applicationLinks?: string[]; // Application URLs, emails, phones
 }
 
 export interface ProcessedJob {
@@ -34,6 +36,8 @@ export interface ProcessedJob {
   location?: string;
   postedDate?: string;
   deadline?: string;
+  howToApply?: string; // How to apply instructions
+  applicationLinks?: string[]; // Application URLs, emails, phones
 }
 
 export interface TelegramMessage {
