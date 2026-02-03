@@ -1,14 +1,8 @@
 import type { ProcessedJob } from '../types';
+import { delay } from '../utils/format';
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
-
-/**
- * Delay execution for the specified milliseconds.
- */
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Extract text content from Workers AI response.
@@ -105,6 +99,77 @@ export function buildNoAIFallback(job: ProcessedJob): string {
 }
 
 /**
+ * Call Workers AI with retry logic, response validation, and cleanup.
+ * Returns the header + AI content, or falls back to buildNoAIFallback.
+ */
+async function callWorkersAI(
+  ai: Ai,
+  prompt: string,
+  job: ProcessedJob,
+  header: string,
+  sourceLabel: string
+): Promise<string> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.run(
+        '@cf/qwen/qwen3-30b-a3b-fp8' as Parameters<typeof ai.run>[0],
+        {
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          max_tokens: 1024,
+          temperature: 0.7,
+        }
+      );
+
+      // Extract text from response (handles both Workers AI and OpenAI formats)
+      const text = extractAIText(response);
+
+      if (!text) {
+        console.error(`No text in AI response (${sourceLabel}):`, JSON.stringify(response).substring(0, 500));
+        if (attempt < MAX_RETRIES - 1) {
+          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+          console.log(`Empty response, retrying after ${waitTime}ms...`);
+          await delay(waitTime);
+          continue;
+        }
+        return buildNoAIFallback(job);
+      }
+
+      // Clean any markdown formatting and remove preamble
+      let cleanedText = text
+        .replace(/\*\*/g, '') // Remove bold
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2') // Convert [text](url) to text: url
+        .replace(/_([^_]+)_/g, '$1'); // Remove italic
+
+      // Remove any preamble before the actual content (starts with 📋)
+      const contentStart = cleanedText.indexOf('📋');
+      if (contentStart > 0) {
+        cleanedText = cleanedText.substring(contentStart);
+      }
+
+      // Combine pre-built header with AI-generated content
+      return header + '\n\n' + cleanedText.trim();
+    } catch (error) {
+      console.error(`Error calling Workers AI (${sourceLabel}, attempt ${attempt + 1}):`, error);
+
+      if (attempt < MAX_RETRIES - 1) {
+        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+        console.log(`Error occurred, retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+        await delay(waitTime);
+        continue;
+      }
+    }
+  }
+
+  console.error(`All retries exhausted (${sourceLabel})`);
+  return buildNoAIFallback(job);
+}
+
+/**
  * Translates and summarizes job posting using Cloudflare Workers AI.
  */
 export async function summarizeJob(
@@ -140,66 +205,7 @@ Output ONLY this format (nothing else):
 📱 واتساب: [إن وجد]
 📞 هاتف: [إن وجد]`;
 
-  // Retry loop with exponential backoff
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      const response = await ai.run(
-        '@cf/qwen/qwen3-30b-a3b-fp8' as Parameters<typeof ai.run>[0],
-        {
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          max_tokens: 1024,
-          temperature: 0.7,
-        }
-      );
-
-      // Extract text from response (handles both Workers AI and OpenAI formats)
-      const text = extractAIText(response);
-
-      if (!text) {
-        console.error('No text in AI response:', JSON.stringify(response).substring(0, 500));
-        if (attempt < MAX_RETRIES - 1) {
-          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-          console.log(`Empty response, retrying after ${waitTime}ms...`);
-          await delay(waitTime);
-          continue;
-        }
-        return buildNoAIFallback(job);
-      }
-
-      // Clean any markdown formatting and remove preamble
-      let cleanedText = text
-        .replace(/\*\*/g, '') // Remove bold
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2') // Convert [text](url) to text: url
-        .replace(/_([^_]+)_/g, '$1'); // Remove italic
-
-      // Remove any preamble before the actual content (starts with 📋)
-      const contentStart = cleanedText.indexOf('📋');
-      if (contentStart > 0) {
-        cleanedText = cleanedText.substring(contentStart);
-      }
-
-      // Combine pre-built header with AI-generated content
-      return header + '\n\n' + cleanedText.trim();
-    } catch (error) {
-      console.error(`Error calling Workers AI (attempt ${attempt + 1}):`, error);
-
-      // Retry on errors
-      if (attempt < MAX_RETRIES - 1) {
-        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-        console.log(`Error occurred, retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
-        await delay(waitTime);
-        continue;
-      }
-    }
-  }
-
-  console.error('All retries exhausted');
-  return buildNoAIFallback(job);
+  return callWorkersAI(ai, prompt, job, header, 'Yemen HR');
 }
 
 /**
@@ -251,58 +257,5 @@ Output ONLY this format (nothing else):
 📱 واتساب: [إن وجد]
 📞 هاتف: [إن وجد]`;
 
-  // Retry loop with exponential backoff
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      const response = await ai.run(
-        '@cf/qwen/qwen3-30b-a3b-fp8' as Parameters<typeof ai.run>[0],
-        {
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          max_tokens: 1024,
-          temperature: 0.7,
-        }
-      );
-
-      // Extract text from response (handles both Workers AI and OpenAI formats)
-      const text = extractAIText(response);
-
-      if (!text) {
-        console.error('No text in AI response (EOI):', JSON.stringify(response).substring(0, 500));
-        if (attempt < MAX_RETRIES - 1) {
-          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-          await delay(waitTime);
-          continue;
-        }
-        return buildNoAIFallback(job);
-      }
-
-      let cleanedText = text
-        .replace(/\*\*/g, '')
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2')
-        .replace(/_([^_]+)_/g, '$1');
-
-      const contentStart = cleanedText.indexOf('📋');
-      if (contentStart > 0) {
-        cleanedText = cleanedText.substring(contentStart);
-      }
-
-      return header + '\n\n' + cleanedText.trim();
-    } catch (error) {
-      console.error(`Error calling Workers AI for EOI (attempt ${attempt + 1}):`, error);
-
-      if (attempt < MAX_RETRIES - 1) {
-        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
-        await delay(waitTime);
-        continue;
-      }
-    }
-  }
-
-  console.error('All retries exhausted (EOI)');
-  return buildNoAIFallback(job);
+  return callWorkersAI(ai, prompt, job, header, 'EOI');
 }

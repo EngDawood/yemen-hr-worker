@@ -46,6 +46,23 @@ export async function sendTextMessage(
 /**
  * Send a photo with caption to Telegram.
  */
+/**
+ * Send alert to admin via Telegram.
+ */
+export async function sendAlert(
+  botToken: string,
+  adminChatId: string | undefined,
+  message: string
+): Promise<void> {
+  if (!adminChatId) return;
+
+  const text = `⚠️ <b>Yemen HR Bot Alert</b>\n\n${message}\n\n<i>${new Date().toISOString()}</i>`;
+  await sendTextMessage(botToken, String(adminChatId), text);
+}
+
+/**
+ * Send a photo with caption to Telegram.
+ */
 export async function sendPhotoMessage(
   botToken: string,
   chatId: string,

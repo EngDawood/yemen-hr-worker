@@ -31,8 +31,7 @@ export function formatTelegramMessage(
     validImageUrl = imageUrl;
   }
 
-  // Compact footer for photos (to fit 1024 char limit)
-  const compactFooter = `
+  const footer = `
 
 ━━━━━━━━━━━━━━━━━━━━
 🔗 رابط الوظيفة:
@@ -41,25 +40,13 @@ ${jobLink}
 ❤️ نتمنى لكم التوفيق! تابعونا للمزيد:
 ${LINKEDIN_URL}`;
 
-  // Full footer for text messages (4096 char limit)
-  const fullFooter = `
-
-━━━━━━━━━━━━━━━━━━━━
-🔗 رابط الوظيفة:
-${jobLink}
-
-❤️ نتمنى لكم التوفيق! تابعونا للمزيد:
-${LINKEDIN_URL}`;
-
-  // Choose footer based on whether we have an image
-  const footer = validImageUrl ? compactFooter : fullFooter;
   let fullMessage = cleanedSummary + footer;
 
   // Truncate for photo captions if needed
   if (validImageUrl && fullMessage.length > MAX_CAPTION_LENGTH) {
-    const truncateAt = MAX_CAPTION_LENGTH - compactFooter.length - 10; // Leave room for "..."
+    const truncateAt = MAX_CAPTION_LENGTH - footer.length - 10; // Leave room for "..."
     cleanedSummary = cleanedSummary.substring(0, truncateAt).trim() + '...';
-    fullMessage = cleanedSummary + compactFooter;
+    fullMessage = cleanedSummary + footer;
   }
 
   return {
