@@ -93,6 +93,23 @@ function convertToJobItem(eoiJob: EOIJob): JobItem {
   };
 }
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Format a DD-MM-YYYY date string to "DD Mon, YYYY" (e.g. "03 Feb, 2026").
+ * Preserves any trailing time component (e.g. "03-02-2026 23:59" → "03 Feb, 2026 23:59").
+ * Returns the original string if parsing fails.
+ */
+export function formatEOIDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})(.*)$/);
+  if (!match) return dateStr;
+  const [, day, monthNum, year, rest] = match;
+  const monthIdx = parseInt(monthNum, 10) - 1;
+  if (monthIdx < 0 || monthIdx > 11) return dateStr;
+  return `${day} ${MONTH_NAMES[monthIdx]}, ${year}${rest}`;
+}
+
 /**
  * Build a description string from EOI job fields.
  */

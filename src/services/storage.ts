@@ -19,12 +19,14 @@ export async function isJobPosted(env: Env, jobId: string): Promise<boolean> {
 export async function markJobAsPosted(
   env: Env,
   jobId: string,
-  title: string
+  title: string,
+  company?: string
 ): Promise<void> {
   const key = `${JOB_KEY_PREFIX}${jobId}`;
   const record: PostedJobRecord = {
     postedAt: new Date().toISOString(),
     title,
+    company,
   };
 
   await env.POSTED_JOBS.put(key, JSON.stringify(record), {
@@ -188,6 +190,28 @@ export async function getJobById(env: Env, jobId: string): Promise<KVJobEntry | 
 export async function deleteJobFromKV(env: Env, jobId: string): Promise<void> {
   const key = `${JOB_KEY_PREFIX}${jobId}`;
   await env.POSTED_JOBS.delete(key);
+}
+
+/**
+ * Delete a dedup key from KV storage (for cross-source deduplication cleanup).
+ */
+export async function deleteDedupKey(env: Env, title: string, company: string): Promise<void> {
+  const key = normalizeJobKey(title, company);
+  await env.POSTED_JOBS.delete(key);
+}
+
+/**
+ * Get the raw PostedJobRecord for a job (includes company for dedup cleanup).
+ */
+export async function getPostedJobRecord(env: Env, jobId: string): Promise<PostedJobRecord | null> {
+  const key = `${JOB_KEY_PREFIX}${jobId}`;
+  const value = await env.POSTED_JOBS.get(key);
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as PostedJobRecord;
+  } catch {
+    return null;
+  }
 }
 
 /**
