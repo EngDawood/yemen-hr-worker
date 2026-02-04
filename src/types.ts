@@ -40,6 +40,8 @@ export interface ProcessedJob {
   deadline?: string;
   howToApply?: string; // How to apply instructions
   applicationLinks?: string[]; // Application URLs, emails, phones
+  source?: JobSource;
+  category?: string;
 }
 
 export interface TelegramMessage {

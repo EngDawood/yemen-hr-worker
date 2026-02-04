@@ -170,6 +170,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
               deadline: formatEOIDate(detail.deadline || metaMap['آخر موعد للتقديم']),
               howToApply: detail.howToApply,
               applicationLinks: detail.applicationLinks,
+              source: 'eoi',
+              category: metaMap['الفئة'] || '',
             };
           } else {
             // Detail fetch failed, use metadata-only description
@@ -182,6 +184,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
               location: metaMap['الموقع'],
               postedDate: formatEOIDate(metaMap['تاريخ النشر']),
               deadline: formatEOIDate(metaMap['آخر موعد للتقديم']),
+              source: 'eoi',
+              category: metaMap['الفئة'] || '',
             };
           }
 
@@ -190,7 +194,8 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
 
           // 7a. EOI-specific AI summary
           console.log(`Generating EOI AI summary for: ${job.title}`);
-          summary = await summarizeEOIJob(processedJob, env.AI);
+          const eoiResult = await summarizeEOIJob(processedJob, env.AI);
+          summary = eoiResult.summary;
         } else {
           // 5b. Yemen HR: existing pipeline
           const extractedData = cleanJobDescription(job.description || '');
@@ -204,15 +209,18 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
             location: extractedData.location,
             postedDate: extractedData.postedDate,
             deadline: extractedData.deadline,
+            source: 'yemenhr',
           };
 
           // 7b. Standard AI summary
           console.log(`Generating AI summary for: ${job.title}`);
-          summary = await summarizeJob(processedJob, env.AI);
+          const yemenHRResult = await summarizeJob(processedJob, env.AI);
+          summary = yemenHRResult.summary;
+          processedJob.category = yemenHRResult.category;
         }
 
         // 8. Format message (use processedJob.imageUrl which includes detail page logos)
-        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL);
+        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, processedJob.source, processedJob.category);
 
         // 9. Send to Telegram
         console.log(`Sending to Telegram: ${job.title}`);

@@ -346,10 +346,12 @@ async function handleTest(env: Env, adminChatId: string): Promise<void> {
           location: extracted.location,
           postedDate: extracted.postedDate,
           deadline: extracted.deadline,
+          source: 'yemenhr',
         };
 
-        const summary = await summarizeJob(processedJob, env.AI);
-        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL);
+        const aiResult = await summarizeJob(processedJob, env.AI);
+        processedJob.category = aiResult.category;
+        const message = formatTelegramMessage(aiResult.summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, processedJob.source, processedJob.category);
 
         let success: boolean;
         if (message.hasImage && message.imageUrl) {
@@ -404,6 +406,8 @@ async function handleTest(env: Env, adminChatId: string): Promise<void> {
             deadline: formatEOIDate(detail.deadline || metaMap['آخر موعد للتقديم']),
             howToApply: detail.howToApply,
             applicationLinks: detail.applicationLinks,
+            source: 'eoi',
+            category: metaMap['الفئة'] || '',
           };
         } else {
           processedJob = {
@@ -415,11 +419,13 @@ async function handleTest(env: Env, adminChatId: string): Promise<void> {
             location: metaMap['الموقع'],
             postedDate: formatEOIDate(metaMap['تاريخ النشر']),
             deadline: formatEOIDate(metaMap['آخر موعد للتقديم']),
+            source: 'eoi',
+            category: metaMap['الفئة'] || '',
           };
         }
 
-        const summary = await summarizeEOIJob(processedJob, env.AI);
-        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL);
+        const eoiAIResult = await summarizeEOIJob(processedJob, env.AI);
+        const message = formatTelegramMessage(eoiAIResult.summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, processedJob.source, processedJob.category);
 
         let success: boolean;
         if (message.hasImage && message.imageUrl) {

@@ -4,6 +4,58 @@ import { delay } from '../utils/format';
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 
+/** English→Arabic category map for Yemen HR jobs */
+const YEMENHR_CATEGORIES: Record<string, string> = {
+  'Development': 'تطوير',
+  'Healthcare': 'رعاية صحية',
+  'Computers/IT': 'تقنية معلومات',
+  'Finance/Accounting': 'محاسبة ومالية',
+  'Engineering': 'هندسة',
+  'Sales/Marketing': 'مبيعات وتسويق',
+  'Administration': 'إدارة',
+  'Logistics': 'لوجستيك',
+  'Human Resources': 'موارد بشرية',
+  'Communication': 'اتصالات',
+  'Education/Training': 'تعليم وتدريب',
+  'Consulting': 'استشارات',
+  'Others': 'أخرى',
+};
+
+const VALID_CATEGORIES_AR = Object.values(YEMENHR_CATEGORIES);
+
+/**
+ * Extract category label from AI response (first 5 lines).
+ * Looks for `🏷️ الفئة: <category>` pattern.
+ */
+function extractCategoryFromAIResponse(text: string): string {
+  const lines = text.split('\n').slice(0, 5);
+  for (const line of lines) {
+    const match = line.match(/🏷️\s*الفئة:\s*(.+)/);
+    if (match) {
+      const category = match[1].trim();
+      if (VALID_CATEGORIES_AR.includes(category)) return category;
+      // Fuzzy match: check if the AI output contains a known category
+      for (const valid of VALID_CATEGORIES_AR) {
+        if (category.includes(valid) || valid.includes(category)) return valid;
+      }
+      return 'أخرى';
+    }
+  }
+  return 'أخرى';
+}
+
+/**
+ * Remove the category line from AI output (it goes in footer instead).
+ */
+function removeCategoryLine(text: string): string {
+  return text.replace(/🏷️\s*الفئة:.*\n?/, '').trim();
+}
+
+export interface AISummaryResult {
+  summary: string;
+  category: string;
+}
+
 /**
  * Extract text content from Workers AI response.
  * Handles both standard Workers AI format ({ response: string })
@@ -171,12 +223,15 @@ async function callWorkersAI(
 
 /**
  * Translates and summarizes job posting using Cloudflare Workers AI.
+ * Returns both the summary text and an Arabic category label.
  */
 export async function summarizeJob(
   job: ProcessedJob,
   ai: Ai
-): Promise<string> {
+): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
+
+  const categoryList = VALID_CATEGORIES_AR.join('، ');
 
   const prompt = `Translate and summarize this job posting to Arabic.
 
@@ -192,6 +247,8 @@ CRITICAL RULES:
 
 Output ONLY this format (nothing else):
 
+🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]
+
 📋 الوصف الوظيفي:
 [ترجمة وملخص مختصر للوظيفة في 2-3 جمل بالعربية]
 
@@ -205,17 +262,22 @@ Output ONLY this format (nothing else):
 📱 واتساب: [إن وجد]
 📞 هاتف: [إن وجد]`;
 
-  return callWorkersAI(ai, prompt, job, header, 'Yemen HR');
+  const rawSummary = await callWorkersAI(ai, prompt, job, header, 'Yemen HR');
+  const category = extractCategoryFromAIResponse(rawSummary);
+  const summary = removeCategoryLine(rawSummary);
+
+  return { summary, category };
 }
 
 /**
  * Summarize EOI job with English-to-Arabic translation prompt.
+ * Category comes from EOI metadata (job.category), not AI classification.
  * Falls back to buildNoAIFallback on failure.
  */
 export async function summarizeEOIJob(
   job: ProcessedJob,
   ai: Ai
-): Promise<string> {
+): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
 
   // Build application links context for the prompt
@@ -257,5 +319,6 @@ Output ONLY this format (nothing else):
 📱 واتساب: [إن وجد]
 📞 هاتف: [إن وجد]`;
 
-  return callWorkersAI(ai, prompt, job, header, 'EOI');
+  const summary = await callWorkersAI(ai, prompt, job, header, 'EOI');
+  return { summary, category: job.category || '' };
 }

@@ -1,7 +1,12 @@
-import type { TelegramMessage } from '../types';
+import type { TelegramMessage, JobSource } from '../types';
 
 const MAX_CAPTION_LENGTH = 1024; // Telegram photo caption limit
 const DEFAULT_LINKEDIN_URL = 'https://www.linkedin.com/in/eng-dawood-saleh';
+
+const SOURCE_HASHTAGS: Record<JobSource, string> = {
+  yemenhr: '#YemenHR',
+  eoi: '#EOI',
+};
 
 /**
  * Format the final Telegram message with footer.
@@ -11,7 +16,9 @@ export function formatTelegramMessage(
   summary: string,
   jobLink: string,
   imageUrl: string | null,
-  linkedinUrl?: string
+  linkedinUrl?: string,
+  source?: JobSource,
+  category?: string
 ): TelegramMessage {
   const LINKEDIN_URL = linkedinUrl || DEFAULT_LINKEDIN_URL;
   // Clean any markdown formatting from summary
@@ -31,10 +38,17 @@ export function formatTelegramMessage(
     validImageUrl = imageUrl;
   }
 
+  // Build metadata line: #YemenHR | 🏷️ تطوير
+  let metadataLine = '';
+  if (source) {
+    const hashtag = SOURCE_HASHTAGS[source];
+    metadataLine = category ? `${hashtag} | 🏷️ ${category}` : hashtag;
+  }
+
   const footer = `
 
 ━━━━━━━━━━━━━━━━━━━━
-🔗 رابط الوظيفة:
+${metadataLine ? metadataLine + '\n\n' : ''}🔗 رابط الوظيفة:
 ${jobLink}
 
 ❤️ نتمنى لكم التوفيق! تابعونا للمزيد:
