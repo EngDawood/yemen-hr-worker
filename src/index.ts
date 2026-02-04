@@ -131,7 +131,7 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
 
         // 7. Generate AI summary and category
         console.log(`Generating AI summary for: ${job.title}`);
-        const { summary, category } = await plugin.summarize(processedJob, env.AI);
+        const { summary, category } = await plugin.summarize(processedJob, env);
 
         // Update category in processed job
         processedJob.category = category;

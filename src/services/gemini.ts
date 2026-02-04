@@ -1,8 +1,9 @@
-import type { ProcessedJob } from '../types';
+import type { Env, ProcessedJob } from '../types';
 import { delay } from '../utils/format';
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
+const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'; // Default Workers AI model
 
 /** English→Arabic category map for Yemen HR jobs */
 const YEMENHR_CATEGORIES: Record<string, string> = {
@@ -159,12 +160,13 @@ async function callWorkersAI(
   prompt: string,
   job: ProcessedJob,
   header: string,
-  sourceLabel: string
+  sourceLabel: string,
+  aiModel: string = DEFAULT_AI_MODEL
 ): Promise<string> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await ai.run(
-        '@cf/qwen/qwen3-30b-a3b-fp8' as Parameters<typeof ai.run>[0],
+        aiModel as Parameters<typeof ai.run>[0],
         {
           messages: [
             {
@@ -227,7 +229,7 @@ async function callWorkersAI(
  */
 export async function summarizeJob(
   job: ProcessedJob,
-  ai: Ai
+  env: Env
 ): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
 
@@ -262,7 +264,8 @@ Output ONLY this format (nothing else):
 📱 واتساب: [إن وجد]
 📞 هاتف: [إن وجد]`;
 
-  const rawSummary = await callWorkersAI(ai, prompt, job, header, 'Yemen HR');
+  const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
+  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, 'Yemen HR', aiModel);
   const category = extractCategoryFromAIResponse(rawSummary);
   const summary = removeCategoryLine(rawSummary);
 
@@ -276,7 +279,7 @@ Output ONLY this format (nothing else):
  */
 export async function summarizeEOIJob(
   job: ProcessedJob,
-  ai: Ai
+  env: Env
 ): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
 
@@ -319,6 +322,7 @@ Output ONLY this format (nothing else):
 📱 واتساب: [إن وجد]
 📞 هاتف: [إن وجد]`;
 
-  const summary = await callWorkersAI(ai, prompt, job, header, 'EOI');
+  const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
+  const summary = await callWorkersAI(env.AI, prompt, job, header, 'EOI', aiModel);
   return { summary, category: job.category || '' };
 }

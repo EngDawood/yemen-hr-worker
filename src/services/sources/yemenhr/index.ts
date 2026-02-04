@@ -22,7 +22,7 @@ export class YemenHRPlugin implements JobSourcePlugin {
     return processYemenHRJob(job);
   }
 
-  async summarize(job: ProcessedJob, ai: Ai): Promise<AISummaryResult> {
-    return summarizeJob(job, ai);
+  async summarize(job: ProcessedJob, env: Env): Promise<AISummaryResult> {
+    return summarizeJob(job, env);
   }
 }

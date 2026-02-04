@@ -1,4 +1,4 @@
-import type { JobItem, ProcessedJob } from '../../../types';
+import type { Env, JobItem, ProcessedJob } from '../../../types';
 import type { JobSourcePlugin, AISummaryResult } from '../types';
 import { fetchEOIJobsFromAPI, convertEOIJobToJobItem } from './scraper';
 import { fetchEOIJobDetail } from './parser';
@@ -68,7 +68,7 @@ export class EOIPlugin implements JobSourcePlugin {
     };
   }
 
-  async summarize(job: ProcessedJob, ai: Ai): Promise<AISummaryResult> {
-    return summarizeEOIJob(job, ai);
+  async summarize(job: ProcessedJob, env: Env): Promise<AISummaryResult> {
+    return summarizeEOIJob(job, env);
   }
 }

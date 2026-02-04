@@ -349,7 +349,7 @@ async function handleTest(env: Env, adminChatId: string): Promise<void> {
           source: 'yemenhr',
         };
 
-        const aiResult = await summarizeJob(processedJob, env.AI);
+        const aiResult = await summarizeJob(processedJob, env);
         processedJob.category = aiResult.category;
         const message = formatTelegramMessage(aiResult.summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, processedJob.source, processedJob.category);
 
@@ -424,7 +424,7 @@ async function handleTest(env: Env, adminChatId: string): Promise<void> {
           };
         }
 
-        const eoiAIResult = await summarizeEOIJob(processedJob, env.AI);
+        const eoiAIResult = await summarizeEOIJob(processedJob, env);
         const message = formatTelegramMessage(eoiAIResult.summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, processedJob.source, processedJob.category);
 
         let success: boolean;

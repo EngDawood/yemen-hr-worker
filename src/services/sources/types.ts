@@ -34,8 +34,8 @@ export interface JobSourcePlugin {
   /**
    * Generate AI summary and category for a job.
    * @param job - Processed job from processJob()
-   * @param ai - Cloudflare Workers AI binding
+   * @param env - Cloudflare environment bindings (includes AI binding and config)
    * @returns AI-generated summary and category
    */
-  summarize(job: ProcessedJob, ai: Ai): Promise<AISummaryResult>;
+  summarize(job: ProcessedJob, env: Env): Promise<AISummaryResult>;
 }
