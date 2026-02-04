@@ -1,14 +1,11 @@
 import type { Env, JobItem, ProcessedJob } from './types';
 import type { TelegramUpdate } from './types/telegram';
-import { fetchRSSFeed } from './services/rss';
-import { fetchEOIJobs, fetchEOIJobDetail, buildEnrichedDescription, formatEOIDate } from './services/eoi';
-import { cleanJobDescription } from './services/cleaner';
-import { summarizeJob, summarizeEOIJob } from './services/gemini';
 import { sendTextMessage, sendPhotoMessage, sendAlert } from './services/telegram';
 import { isJobPosted, markJobAsPosted, saveJobToDatabase, isDuplicateJob, markDedupKey } from './services/storage';
 import { handleWebhook } from './services/commands';
 import { formatTelegramMessage, delay } from './utils/format';
 import { jsonResponse } from './utils/http';
+import { getAllSources, getSource } from './services/sources/registry';
 
 // Default values (can be overridden via env vars)
 const DEFAULT_DELAY_BETWEEN_POSTS_MS = 1000;
@@ -59,34 +56,28 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
   let failed = 0;   // Jobs that failed to post
 
   try {
-    // 1. Fetch jobs from both sources in parallel
-    console.log('Fetching jobs from Yemen HR and EOI...');
-    const [yemenHRResult, eoiResult] = await Promise.allSettled([
-      fetchRSSFeed(env.RSS_FEED_URL),
-      fetchEOIJobs(),
-    ]);
+    // 1. Fetch jobs from all registered sources in parallel
+    const plugins = getAllSources();
+    console.log(`Fetching jobs from ${plugins.length} sources: ${plugins.map(p => p.name).join(', ')}...`);
+
+    const fetchResults = await Promise.allSettled(
+      plugins.map(plugin =>
+        plugin.fetchJobs(env).then(jobs => ({ plugin, jobs }))
+      )
+    );
 
     // Extract jobs, handling failures gracefully
-    const yemenHRJobs: JobItem[] = yemenHRResult.status === 'fulfilled' ? yemenHRResult.value : [];
-    const eoiJobs: JobItem[] = eoiResult.status === 'fulfilled' ? eoiResult.value : [];
-
-    // Log fetch results
-    if (yemenHRResult.status === 'rejected') {
-      console.error('Failed to fetch Yemen HR jobs:', yemenHRResult.reason);
-    } else {
-      console.log(`Found ${yemenHRJobs.length} jobs from Yemen HR`);
-    }
-    if (eoiResult.status === 'rejected') {
-      console.error('Failed to fetch EOI jobs:', eoiResult.reason);
-    } else {
-      console.log(`Found ${eoiJobs.length} jobs from EOI`);
+    const allJobs: JobItem[] = [];
+    for (const result of fetchResults) {
+      if (result.status === 'fulfilled') {
+        const { plugin, jobs } = result.value;
+        console.log(`Found ${jobs.length} jobs from ${plugin.name}`);
+        allJobs.push(...jobs);
+      } else {
+        console.error('Failed to fetch jobs from source:', result.reason);
+      }
     }
 
-    // Tag Yemen HR jobs with source (EOI jobs already have source set)
-    const taggedYemenHRJobs = yemenHRJobs.map(job => ({ ...job, source: 'yemenhr' as const }));
-
-    // Merge all jobs
-    const allJobs = [...taggedYemenHRJobs, ...eoiJobs];
     console.log(`Total jobs from all sources: ${allJobs.length}`);
 
     if (allJobs.length === 0) {
@@ -131,96 +122,22 @@ async function processJobs(env: Env): Promise<{ processed: number; posted: numbe
       console.log(`Processing new job: ${job.title} (${job.id}) from ${source}`);
 
       try {
-        let processedJob: ProcessedJob;
-        let summary: string;
+        // 5. Get the plugin for this job's source
+        const plugin = getSource(source);
 
-        if (source === 'eoi') {
-          // 5a. EOI: Fetch detail page for full description + logo + apply info
-          console.log(`Fetching EOI detail page for: ${job.title}`);
-          const detail = await fetchEOIJobDetail(job.link);
+        // 6. Process job (clean HTML, fetch details if needed)
+        console.log(`Processing job with ${source} plugin: ${job.title}`);
+        const processedJob = await plugin.processJob(job, env);
 
-          // Parse metadata from the EOI job description (category, location, etc.)
-          const metaLines = (job.description || '').split('\n');
-          const metaMap: Record<string, string> = {};
-          for (const line of metaLines) {
-            const [key, ...vals] = line.split(': ');
-            if (key && vals.length > 0) metaMap[key.trim()] = vals.join(': ').trim();
-          }
+        // 7. Generate AI summary and category
+        console.log(`Generating AI summary for: ${job.title}`);
+        const { summary, category } = await plugin.summarize(processedJob, env.AI);
 
-          if (detail) {
-            // Enrich with detail page data
-            const enrichedDesc = buildEnrichedDescription(
-              {
-                category: metaMap['الفئة'],
-                location: metaMap['الموقع'],
-                postDate: metaMap['تاريخ النشر'],
-                deadline: metaMap['آخر موعد للتقديم'],
-              },
-              detail
-            );
+        // Update category in processed job
+        processedJob.category = category;
 
-            processedJob = {
-              title: job.title,
-              company: job.company,
-              link: job.link,
-              description: enrichedDesc,
-              imageUrl: detail.imageUrl || job.imageUrl,
-              location: metaMap['الموقع'],
-              postedDate: formatEOIDate(metaMap['تاريخ النشر']),
-              deadline: formatEOIDate(detail.deadline || metaMap['آخر موعد للتقديم']),
-              howToApply: detail.howToApply,
-              applicationLinks: detail.applicationLinks,
-              source: 'eoi',
-              category: metaMap['الفئة'] || '',
-            };
-          } else {
-            // Detail fetch failed, use metadata-only description
-            processedJob = {
-              title: job.title,
-              company: job.company,
-              link: job.link,
-              description: job.description || '',
-              imageUrl: job.imageUrl,
-              location: metaMap['الموقع'],
-              postedDate: formatEOIDate(metaMap['تاريخ النشر']),
-              deadline: formatEOIDate(metaMap['آخر موعد للتقديم']),
-              source: 'eoi',
-              category: metaMap['الفئة'] || '',
-            };
-          }
-
-          // Rate limit between detail fetches
-          await delay(500);
-
-          // 7a. EOI-specific AI summary
-          console.log(`Generating EOI AI summary for: ${job.title}`);
-          const eoiResult = await summarizeEOIJob(processedJob, env.AI);
-          summary = eoiResult.summary;
-        } else {
-          // 5b. Yemen HR: existing pipeline
-          const extractedData = cleanJobDescription(job.description || '');
-
-          processedJob = {
-            title: job.title,
-            company: job.company,
-            link: job.link,
-            description: extractedData.description || job.description || '',
-            imageUrl: job.imageUrl,
-            location: extractedData.location,
-            postedDate: extractedData.postedDate,
-            deadline: extractedData.deadline,
-            source: 'yemenhr',
-          };
-
-          // 7b. Standard AI summary
-          console.log(`Generating AI summary for: ${job.title}`);
-          const yemenHRResult = await summarizeJob(processedJob, env.AI);
-          summary = yemenHRResult.summary;
-          processedJob.category = yemenHRResult.category;
-        }
-
-        // 8. Format message (use processedJob.imageUrl which includes detail page logos)
-        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, processedJob.source, processedJob.category);
+        // 8. Format message
+        const message = formatTelegramMessage(summary, job.link, processedJob.imageUrl, env.LINKEDIN_URL, source, category);
 
         // 9. Send to Telegram
         console.log(`Sending to Telegram: ${job.title}`);
