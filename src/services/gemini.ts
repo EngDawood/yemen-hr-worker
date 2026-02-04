@@ -240,29 +240,31 @@ export async function summarizeJob(
 Job Description:
 ${job.description}
 
+CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
+- Description section: MAXIMUM 250 characters (count carefully!)
+- How to apply section: MAXIMUM 120 characters total
+- Total output must be under 400 characters to fit Telegram caption limit
+
 CRITICAL RULES:
 - DO NOT include any introduction or preamble
 - Respond ONLY in Arabic
-- BE CONCISE - maximum 400 characters for description, 200 for how to apply
+- BE EXTREMELY CONCISE - use shortest possible wording
 - NO markdown formatting (no **, no _, no []())
 - Use plain text only
+- Count characters carefully and stay under limits
 
 Output ONLY this format (nothing else):
 
 🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]
 
 📋 الوصف الوظيفي:
-[ترجمة وملخص مختصر للوظيفة في 2-3 جمل بالعربية]
+[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
 
 ━━━━━━━━━━━━━━━━━━━━
 
 📧 كيفية التقديم:
-[استخدم الرموز المناسبة فقط:]
-📩 إيميل: [إن وجد]
-🔗 فورم: [إن وجد رابط فورم]
-🌐 موقع: [إن وجد رابط موقع]
-📱 واتساب: [إن وجد]
-📞 هاتف: [إن وجد]`;
+[معلومات التقديم فقط - لا تتجاوز 120 حرف:]
+📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
 
   const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
   const rawSummary = await callWorkersAI(env.AI, prompt, job, header, 'Yemen HR', aiModel);
@@ -298,29 +300,31 @@ export async function summarizeEOIJob(
 Job Description (in English):
 ${job.description}${applyContext}
 
+CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
+- Description section: MAXIMUM 250 characters (count carefully!)
+- How to apply section: MAXIMUM 120 characters total
+- Total output must be under 400 characters to fit Telegram caption limit
+
 CRITICAL RULES:
 - The content is in ENGLISH - translate to Arabic
 - DO NOT include any introduction or preamble
 - Respond ONLY in Arabic
-- BE CONCISE - maximum 400 characters for description, 200 for how to apply
+- BE EXTREMELY CONCISE - use shortest possible wording
 - NO markdown formatting (no **, no _, no []())
 - Use plain text only
 - PRESERVE all URLs, email addresses, and phone numbers EXACTLY as-is (do not translate them)
+- Count characters carefully and stay under limits
 
 Output ONLY this format (nothing else):
 
 📋 الوصف الوظيفي:
-[ترجمة وملخص مختصر للوظيفة في 2-3 جمل بالعربية]
+[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
 
 ━━━━━━━━━━━━━━━━━━━━
 
 📧 كيفية التقديم:
-[استخدم الرموز المناسبة فقط:]
-📩 إيميل: [إن وجد]
-🔗 فورم: [إن وجد رابط فورم]
-🌐 موقع: [إن وجد رابط موقع]
-📱 واتساب: [إن وجد]
-📞 هاتف: [إن وجد]`;
+[معلومات التقديم فقط - لا تتجاوز 120 حرف:]
+📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
 
   const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
   const summary = await callWorkersAI(env.AI, prompt, job, header, 'EOI', aiModel);
