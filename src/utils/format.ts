@@ -38,11 +38,13 @@ export function formatTelegramMessage(
     validImageUrl = imageUrl;
   }
 
-  // Build metadata line: #YemenHR | 🏷️ تطوير
+  // Build metadata line: #YemenHR | #تطوير
   let metadataLine = '';
   if (source) {
     const hashtag = SOURCE_HASHTAGS[source];
-    metadataLine = category ? `${hashtag} | 🏷️ ${category}` : hashtag;
+    // Format category as hashtag (replace spaces with underscores)
+    const categoryHashtag = category ? `#${category.replace(/\s+/g, '_')}` : '';
+    metadataLine = categoryHashtag ? `${hashtag} | ${categoryHashtag}` : hashtag;
   }
 
   const footer = `
@@ -56,11 +58,18 @@ ${LINKEDIN_URL}`;
 
   let fullMessage = cleanedSummary + footer;
 
-  // Truncate for photo captions if needed
+  // Aggressive truncation to always stay under caption limit when using images
   if (validImageUrl && fullMessage.length > MAX_CAPTION_LENGTH) {
-    const truncateAt = MAX_CAPTION_LENGTH - footer.length - 10; // Leave room for "..."
-    cleanedSummary = cleanedSummary.substring(0, truncateAt).trim() + '...';
-    fullMessage = cleanedSummary + footer;
+    const maxSummaryLength = MAX_CAPTION_LENGTH - footer.length - 10; // Leave room for "..."
+    if (cleanedSummary.length > maxSummaryLength) {
+      cleanedSummary = cleanedSummary.substring(0, maxSummaryLength).trim() + '...';
+      fullMessage = cleanedSummary + footer;
+    }
+  }
+
+  // Final safety check: if still over limit, hard truncate
+  if (validImageUrl && fullMessage.length > MAX_CAPTION_LENGTH) {
+    fullMessage = fullMessage.substring(0, MAX_CAPTION_LENGTH - 3) + '...';
   }
 
   return {
