@@ -36,6 +36,9 @@ export function formatTelegramMessage(
     imageUrl.startsWith('http')
   ) {
     validImageUrl = imageUrl;
+  } else {
+    // Debug: Log when image is missing
+    console.log(`[DEBUG] Missing/invalid imageUrl for job. Received:`, imageUrl);
   }
 
   // Build metadata line: #YemenHR | #تطوير
