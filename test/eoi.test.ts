@@ -4,7 +4,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchEOIJobs, fetchEOIJobsRaw, generateAtomFeed, generateRSSFeed, fetchEOIJobDetail, cleanEOIDescription, extractHowToApply } from '../src/services/eoi';
+import { fetchEOIJobsFromAPI, convertEOIJobToJobItem } from '../src/services/sources/eoi/scraper';
+import { fetchEOIJobDetail, cleanEOIDescription, extractHowToApply } from '../src/services/sources/eoi/parser';
 
 // Sample API response fixture
 const SAMPLE_API_RESPONSE = {
@@ -56,7 +57,7 @@ const SAMPLE_API_RESPONSE = {
   total_data: 2,
 };
 
-describe('fetchEOIJobsRaw', () => {
+describe('fetchEOIJobsFromAPI', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });
@@ -70,7 +71,7 @@ describe('fetchEOIJobsRaw', () => {
       new Response(JSON.stringify(SAMPLE_API_RESPONSE), { status: 200 })
     );
 
-    const jobs = await fetchEOIJobsRaw();
+    const jobs = await fetchEOIJobsFromAPI();
 
     expect(jobs).toHaveLength(2);
     expect(jobs[0]).toMatchObject({
@@ -90,7 +91,7 @@ describe('fetchEOIJobsRaw', () => {
       new Response(JSON.stringify({ table_data: '', total_data: 0 }), { status: 200 })
     );
 
-    await fetchEOIJobsRaw();
+    await fetchEOIJobsFromAPI();
 
     expect(fetch).toHaveBeenCalledWith(
       'https://eoi-ye.com/live_search/action1?type=0&title=',
@@ -107,7 +108,7 @@ describe('fetchEOIJobsRaw', () => {
       new Response(JSON.stringify({ table_data: '', total_data: 0 }), { status: 200 })
     );
 
-    const jobs = await fetchEOIJobsRaw();
+    const jobs = await fetchEOIJobsFromAPI();
 
     expect(jobs).toHaveLength(0);
   });
@@ -117,28 +118,26 @@ describe('fetchEOIJobsRaw', () => {
       new Response('Internal Server Error', { status: 500, statusText: 'Internal Server Error' })
     );
 
-    await expect(fetchEOIJobsRaw()).rejects.toThrow('EOI API fetch failed: 500');
+    await expect(fetchEOIJobsFromAPI()).rejects.toThrow('EOI API fetch failed: 500');
   });
 });
 
-describe('fetchEOIJobs', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
+describe('convertEOIJobToJobItem', () => {
+  it('should convert EOI job to JobItem with correct structure', () => {
+    const eoiJob = {
+      id: '21347',
+      title: 'Social Worker',
+      company: 'Medecine Sans Frontiers',
+      category: 'أخرى',
+      location: 'عدن , لحج',
+      postDate: '01-02-2026',
+      deadline: '07-02-2026',
+      url: 'https://eoi-ye.com/jobs/21347/',
+    };
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+    const jobItem = convertEOIJobToJobItem(eoiJob);
 
-  it('should return JobItem array with correct structure', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify(SAMPLE_API_RESPONSE), { status: 200 })
-    );
-
-    const jobs = await fetchEOIJobs();
-
-    expect(jobs).toHaveLength(2);
-    expect(jobs[0]).toMatchObject({
+    expect(jobItem).toMatchObject({
       id: 'eoi-21347', // Prefixed with 'eoi-'
       title: 'Social Worker',
       company: 'Medecine Sans Frontiers',
@@ -146,91 +145,24 @@ describe('fetchEOIJobs', () => {
       imageUrl: null, // EOI has no images
       source: 'eoi',
     });
-    expect(jobs[0].pubDate).toBeDefined();
-    expect(jobs[0].description).toContain('أخرى'); // Category
+    expect(jobItem.pubDate).toBeDefined();
+    expect(jobItem.description).toContain('أخرى'); // Category
   });
 
-  it('should set source to eoi', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify(SAMPLE_API_RESPONSE), { status: 200 })
-    );
+  it('should set source to eoi', () => {
+    const eoiJob = {
+      id: '21347',
+      title: 'Social Worker',
+      company: 'MSF',
+      category: '',
+      location: '',
+      postDate: '01-02-2026',
+      deadline: '',
+      url: 'https://eoi-ye.com/jobs/21347/',
+    };
 
-    const jobs = await fetchEOIJobs();
-
-    expect(jobs.every(job => job.source === 'eoi')).toBe(true);
-  });
-});
-
-describe('generateAtomFeed', () => {
-  it('should generate valid Atom XML', () => {
-    const jobs = [
-      {
-        id: '123',
-        title: 'Test Job',
-        company: 'Test Company',
-        category: 'IT',
-        location: 'Aden',
-        postDate: '01-02-2026',
-        deadline: '15-02-2026',
-        url: 'https://eoi-ye.com/jobs/123/',
-      },
-    ];
-
-    const feed = generateAtomFeed(jobs);
-
-    expect(feed).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-    expect(feed).toContain('<feed xmlns="http://www.w3.org/2005/Atom">');
-    expect(feed).toContain('<title>EOI Yemen - الوظائف</title>');
-    expect(feed).toContain('<entry>');
-    expect(feed).toContain('<title>Test Job</title>');
-    expect(feed).toContain('https://eoi-ye.com/jobs/123/');
-  });
-
-  it('should escape XML special characters', () => {
-    const jobs = [
-      {
-        id: '123',
-        title: 'Test & Job <script>',
-        company: 'Company "Test"',
-        category: 'IT',
-        location: 'Aden',
-        postDate: '01-02-2026',
-        deadline: '15-02-2026',
-        url: 'https://eoi-ye.com/jobs/123/',
-      },
-    ];
-
-    const feed = generateAtomFeed(jobs);
-
-    expect(feed).toContain('Test &amp; Job &lt;script&gt;');
-    expect(feed).toContain('Company &quot;Test&quot;');
-  });
-});
-
-describe('generateRSSFeed', () => {
-  it('should generate valid RSS 2.0 XML', () => {
-    const jobs = [
-      {
-        id: '123',
-        title: 'Test Job',
-        company: 'Test Company',
-        category: 'IT',
-        location: 'Aden',
-        postDate: '01-02-2026',
-        deadline: '15-02-2026',
-        url: 'https://eoi-ye.com/jobs/123/',
-      },
-    ];
-
-    const feed = generateRSSFeed(jobs);
-
-    expect(feed).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-    expect(feed).toContain('<rss version="2.0"');
-    expect(feed).toContain('<channel>');
-    expect(feed).toContain('<title>EOI Yemen - الوظائف</title>');
-    expect(feed).toContain('<item>');
-    expect(feed).toContain('<title>Test Job - Test Company</title>');
-    expect(feed).toContain('<link>https://eoi-ye.com/jobs/123/</link>');
+    const jobItem = convertEOIJobToJobItem(eoiJob);
+    expect(jobItem.source).toBe('eoi');
   });
 });
 

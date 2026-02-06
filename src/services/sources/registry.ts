@@ -1,14 +1,17 @@
 import type { JobSource } from '../../types';
 import type { JobSourcePlugin } from './types';
-import { YemenHRPlugin } from './yemenhr';
+import { RSSPlugin } from './rss-shared/plugin';
+import { yemenhrConfig } from './rss-shared/configs';
 import { EOIPlugin } from './eoi';
 
 /**
  * Registry of all available job source plugins.
- * Add new sources here to enable them in the worker.
+ *
+ * RSS sources: Add a config to rss-shared/configs.ts, then add 1 line here.
+ * Custom sources: Implement JobSourcePlugin directly (like EOIPlugin).
  */
 export const SOURCES: Record<JobSource, JobSourcePlugin> = {
-  yemenhr: new YemenHRPlugin(),
+  yemenhr: new RSSPlugin(yemenhrConfig),
   eoi: new EOIPlugin(),
 } as Record<JobSource, JobSourcePlugin>;
 

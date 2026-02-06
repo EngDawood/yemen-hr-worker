@@ -1,5 +1,10 @@
+/**
+ * Shared RSS/Atom feed parser.
+ * Parses Atom feeds into a normalized job item structure.
+ */
+
 import { XMLParser } from 'fast-xml-parser';
-import type { JobItem } from '../types';
+import type { JobItem, JobSource } from '../../../types';
 
 interface AtomLink {
   '@_rel'?: string;
@@ -15,7 +20,7 @@ interface AtomEntry {
   published?: string;
   updated?: string;
   enclosure?: { '@_url'?: string } | string;
-  content?: string | { '#text'?: string; '@_type'?: string }; // Full job description from expanded RSS
+  content?: string | { '#text'?: string; '@_type'?: string };
 }
 
 interface AtomFeed {
@@ -24,7 +29,20 @@ interface AtomFeed {
   };
 }
 
-export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
+/**
+ * Fetch and parse an Atom/RSS feed URL into JobItems.
+ *
+ * @param url - Feed URL
+ * @param source - Source name to tag each job with
+ * @param baseUrl - Base URL for resolving relative image URLs
+ * @param idExtractor - Function to extract a unique ID from a job link
+ */
+export async function fetchAndParseRSSFeed(
+  url: string,
+  source: JobSource,
+  baseUrl: string,
+  idExtractor: (link: string) => string
+): Promise<JobItem[]> {
   const response = await fetch(url, {
     headers: {
       'User-Agent': 'Yemen-HR-Bot/1.0',
@@ -99,7 +117,7 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
 
     // Convert relative URL to absolute
     if (imageUrl && imageUrl.startsWith('/')) {
-      imageUrl = 'https://yemenhr.com' + imageUrl;
+      imageUrl = baseUrl + imageUrl;
     }
 
     // Use entry.id if link extraction failed
@@ -107,10 +125,10 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
       link = entry.id;
     }
 
-    // Generate ID from link (slug)
-    const id = link ? extractJobId(link) : (typeof entry.id === 'string' ? entry.id : '');
+    // Generate ID from link
+    const id = link ? idExtractor(link) : (typeof entry.id === 'string' ? entry.id : '');
 
-    // Extract content/description from expanded RSS feed
+    // Extract content/description
     let description = '';
     if (typeof entry.content === 'string') {
       description = entry.content;
@@ -126,12 +144,7 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
       pubDate: entry.published || entry.updated || '',
       imageUrl,
       description,
+      source,
     };
   });
-}
-
-function extractJobId(link: string): string {
-  // Extract job slug from URL like https://yemenhr.com/jobs/job-slug
-  const match = link.match(/\/jobs\/([^/?#]+)/);
-  return match ? match[1] : link;
 }

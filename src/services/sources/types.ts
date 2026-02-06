@@ -1,16 +1,9 @@
 import type { Env, JobItem, ProcessedJob, JobSource } from '../../types';
 
 /**
- * Result from AI summarization with category classification.
- */
-export interface AISummaryResult {
-  summary: string;
-  category: string;
-}
-
-/**
  * Plugin interface for job sources.
  * Each source (Yemen HR, EOI, etc.) implements this interface.
+ * AI summarization is handled by the pipeline, not by plugins.
  */
 export interface JobSourcePlugin {
   /** Source identifier (e.g., 'yemenhr', 'eoi') */
@@ -30,12 +23,4 @@ export interface JobSourcePlugin {
    * @returns Processed job ready for AI summarization
    */
   processJob(job: JobItem, env?: Env): Promise<ProcessedJob>;
-
-  /**
-   * Generate AI summary and category for a job.
-   * @param job - Processed job from processJob()
-   * @param env - Cloudflare environment bindings (includes AI binding and config)
-   * @returns AI-generated summary and category
-   */
-  summarize(job: ProcessedJob, env: Env): Promise<AISummaryResult>;
 }

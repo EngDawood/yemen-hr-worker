@@ -224,80 +224,45 @@ async function callWorkersAI(
 }
 
 /**
- * Translates and summarizes job posting using Cloudflare Workers AI.
+ * Build the application context string for AI prompts.
+ */
+function buildApplyContext(job: ProcessedJob): string {
+  let context = '';
+  if (job.applicationLinks && job.applicationLinks.length > 0) {
+    context = '\n\nApplication links/contacts (PRESERVE EXACTLY as-is, do not translate or modify):\n' +
+      job.applicationLinks.join('\n');
+  }
+  if (job.howToApply) {
+    context += '\n\nHow to Apply section:\n' + job.howToApply;
+  }
+  return context;
+}
+
+/**
+ * Translates and summarizes a job posting using Cloudflare Workers AI.
  * Returns both the summary text and an Arabic category label.
+ *
+ * Handles both source types:
+ * - If job.category is already set (e.g., EOI), uses that directly
+ * - If not, asks AI to classify the job into a category
  */
 export async function summarizeJob(
   job: ProcessedJob,
   env: Env
 ): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
+  const hasCategory = !!job.category;
+  const applyContext = buildApplyContext(job);
 
+  // Build category instruction for AI
   const categoryList = VALID_CATEGORIES_AR.join('، ');
+  const categorySection = hasCategory
+    ? '' // Category already known, don't ask AI to classify
+    : `\n🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]\n`;
 
   const prompt = `Translate and summarize this job posting to Arabic.
 
 Job Description:
-${job.description}
-
-CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
-- Description section: MAXIMUM 250 characters (count carefully!)
-- How to apply section: MAXIMUM 120 characters total
-- Total output must be under 400 characters to fit Telegram caption limit
-
-CRITICAL RULES:
-- DO NOT include any introduction or preamble
-- Respond ONLY in Arabic
-- BE EXTREMELY CONCISE - use shortest possible wording
-- NO markdown formatting (no **, no _, no []())
-- Use plain text only
-- Count characters carefully and stay under limits
-
-Output ONLY this format (nothing else):
-
-🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]
-
-📋 الوصف الوظيفي:
-[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
-
-━━━━━━━━━━━━━━━━━━━━
-
-📧 كيفية التقديم:
-[معلومات التقديم فقط - لا تتجاوز 120 حرف:]
-📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
-
-  const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
-  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, 'Yemen HR', aiModel);
-  const category = extractCategoryFromAIResponse(rawSummary);
-  const summary = removeCategoryLine(rawSummary);
-
-  return { summary, category };
-}
-
-/**
- * Summarize EOI job with English-to-Arabic translation prompt.
- * Category comes from EOI metadata (job.category), not AI classification.
- * Falls back to buildNoAIFallback on failure.
- */
-export async function summarizeEOIJob(
-  job: ProcessedJob,
-  env: Env
-): Promise<AISummaryResult> {
-  const header = buildJobHeader(job);
-
-  // Build application links context for the prompt
-  let applyContext = '';
-  if (job.applicationLinks && job.applicationLinks.length > 0) {
-    applyContext = '\n\nApplication links/contacts (PRESERVE EXACTLY as-is, do not translate or modify):\n' +
-      job.applicationLinks.join('\n');
-  }
-  if (job.howToApply) {
-    applyContext += '\n\nHow to Apply section:\n' + job.howToApply;
-  }
-
-  const prompt = `Translate this English job posting to Arabic and summarize concisely.
-
-Job Description (in English):
 ${job.description}${applyContext}
 
 CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
@@ -306,7 +271,6 @@ CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
 - Total output must be under 400 characters to fit Telegram caption limit
 
 CRITICAL RULES:
-- The content is in ENGLISH - translate to Arabic
 - DO NOT include any introduction or preamble
 - Respond ONLY in Arabic
 - BE EXTREMELY CONCISE - use shortest possible wording
@@ -316,7 +280,7 @@ CRITICAL RULES:
 - Count characters carefully and stay under limits
 
 Output ONLY this format (nothing else):
-
+${categorySection}
 📋 الوصف الوظيفي:
 [ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
 
@@ -327,6 +291,18 @@ Output ONLY this format (nothing else):
 📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
 
   const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
-  const summary = await callWorkersAI(env.AI, prompt, job, header, 'EOI', aiModel);
-  return { summary, category: job.category || '' };
+  const sourceLabel = job.source || 'unknown';
+  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, sourceLabel, aiModel);
+
+  // Determine category
+  let category: string;
+  if (hasCategory) {
+    category = job.category!;
+  } else {
+    category = extractCategoryFromAIResponse(rawSummary);
+  }
+
+  const summary = removeCategoryLine(rawSummary);
+
+  return { summary, category };
 }

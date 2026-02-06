@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { cleanJobDescription } from '../src/services/cleaner';
+import { cleanJobDescription } from '../src/services/sources/yemenhr/processor';
 import { formatTelegramMessage } from '../src/utils/format';
 
 describe('cleanJobDescription', () => {

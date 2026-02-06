@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchRSSFeed } from '../src/services/rss';
+import { fetchYemenHRJobs as fetchRSSFeed } from '../src/services/sources/yemenhr/fetcher';
 
 // Sample Atom feed fixtures
 const SINGLE_ENTRY_FEED = `<?xml version="1.0" encoding="UTF-8"?>
@@ -107,6 +107,7 @@ describe('fetchRSSFeed', () => {
       pubDate: '2025-01-15T10:00:00Z',
       imageUrl: 'https://yemenhr.com/images/logo.png',
       description: 'Full job description here',
+      source: 'yemenhr',
     });
   });
 

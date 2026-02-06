@@ -1,8 +1,7 @@
-import type { Env, JobItem, ProcessedJob } from '../../../types';
-import type { JobSourcePlugin, AISummaryResult } from '../types';
+import type { JobItem, ProcessedJob } from '../../../types';
+import type { JobSourcePlugin } from '../types';
 import { fetchEOIJobsFromAPI, convertEOIJobToJobItem } from './scraper';
 import { fetchEOIJobDetail } from './parser';
-import { summarizeEOIJob } from '../../gemini';
 
 /**
  * EOI Yemen job source plugin.
@@ -32,31 +31,21 @@ export class EOIPlugin implements JobSourcePlugin {
       };
     }
 
-    // Build enriched description
-    const descriptionParts: string[] = [];
-
-    // Extract category from job.description (metadata)
+    // Extract metadata from job.description
     const categoryMatch = job.description?.match(/الفئة:\s*(.+)/);
     const category = categoryMatch ? categoryMatch[1].trim() : '';
 
-    // Extract location from job.description
     const locationMatch = job.description?.match(/الموقع:\s*(.+)/);
     const location = locationMatch ? locationMatch[1].trim() : '';
 
-    // Extract posted date from job.description
     const postedMatch = job.description?.match(/تاريخ النشر:\s*(.+)/);
     const postedDate = postedMatch ? postedMatch[1].trim() : '';
-
-    // Add full description from detail page
-    if (detail.description) {
-      descriptionParts.push(detail.description);
-    }
 
     return {
       title: job.title,
       company: job.company,
       link: job.link,
-      description: descriptionParts.join('\n\n'),
+      description: detail.description || '',
       imageUrl: detail.imageUrl,
       location,
       postedDate,
@@ -64,11 +53,7 @@ export class EOIPlugin implements JobSourcePlugin {
       howToApply: detail.howToApply || undefined,
       applicationLinks: detail.applicationLinks,
       source: 'eoi',
-      category, // EOI category from metadata
+      category,
     };
-  }
-
-  async summarize(job: ProcessedJob, env: Env): Promise<AISummaryResult> {
-    return summarizeEOIJob(job, env);
   }
 }
