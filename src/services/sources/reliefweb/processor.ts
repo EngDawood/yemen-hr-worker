@@ -8,6 +8,10 @@
 
 import type { JobItem, ProcessedJob } from '../../../types';
 
+/** ReliefWeb RSS feed logo (256x256 PNG) — fallback when RSS items have no image */
+const RELIEFWEB_LOGO_URL =
+  'https://reliefweb.int/themes/custom/common_design_subtheme/img/logos/ReliefWeb_RSS_logo.png';
+
 /**
  * Process a ReliefWeb job item.
  * Extracts organization, country, closing date, and how-to-apply from the HTML description.
@@ -34,7 +38,7 @@ export function processReliefWebJob(job: JobItem): ProcessedJob {
     company: organization || job.company,
     link: job.link,
     description: description || 'No description available',
-    imageUrl: job.imageUrl,
+    imageUrl: job.imageUrl || RELIEFWEB_LOGO_URL,
     location: country || undefined,
     deadline: closingDate || undefined,
     howToApply: howToApply || undefined,
