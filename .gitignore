@@ -26,3 +26,10 @@ coverage/
 # Logs
 *.log
 npm-debug.log*
+.agents\*
+.claude\skills\*
+.claude\settings.local.json
+.claude\agents\*
+.claude\commands\*
+.agents/skills/*
+.agents/

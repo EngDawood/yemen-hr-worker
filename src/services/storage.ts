@@ -97,8 +97,8 @@ export async function saveJobToDatabase(
     await env.JOBS_DB.prepare(`
       INSERT OR REPLACE INTO jobs
       (id, title, company, location, description_raw, description_clean,
-       ai_summary_ar, image_url, source_url, posted_at, word_count, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ai_summary_ar, image_url, source_url, posted_at, word_count, source, category)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       jobId,
       job.title,
@@ -111,7 +111,8 @@ export async function saveJobToDatabase(
       job.link,
       new Date().toISOString(),
       job.description.split(/\s+/).length,
-      source
+      source,
+      job.category || null
     ).run();
   } catch (error) {
     console.error('Failed to save job to D1:', error);
