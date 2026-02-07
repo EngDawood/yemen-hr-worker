@@ -75,7 +75,7 @@ describe('formatTelegramMessage', () => {
       null
     );
     expect(result.fullMessage).toContain('https://yemenhr.com/jobs/test');
-    expect(result.fullMessage).toContain('رابط الوظيفة:');
+    expect(result.fullMessage).toContain('رابط الوظيفة</a>');
   });
 
   it('should detect valid image URL', () => {

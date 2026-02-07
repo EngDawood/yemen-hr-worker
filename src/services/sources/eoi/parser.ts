@@ -1,6 +1,38 @@
 import type { EOIJobDetail } from './types';
 
 /**
+ * Decode a Cloudflare email-obfuscation hex string.
+ * First byte is XOR key, remaining bytes are the encoded email.
+ */
+function decodeCfEmail(encoded: string): string {
+  const key = parseInt(encoded.substring(0, 2), 16);
+  let email = '';
+  for (let i = 2; i < encoded.length; i += 2) {
+    email += String.fromCharCode(parseInt(encoded.substring(i, i + 2), 16) ^ key);
+  }
+  return email;
+}
+
+/**
+ * Replace all Cloudflare email-obfuscated tags in HTML with decoded emails.
+ * Handles: <a href="/cdn-cgi/l/email-protection#hex"...>[email&#160;protected]</a>
+ *          <span class="__cf_email__" data-cfemail="hex">[email&#160;protected]</span>
+ */
+export function decodeCfEmails(html: string): string {
+  // <a href="/cdn-cgi/l/email-protection#hex">...</a>
+  html = html.replace(
+    /<a[^>]+href="\/cdn-cgi\/l\/email-protection#([0-9a-fA-F]+)"[^>]*>[\s\S]*?<\/a>/g,
+    (_, hex) => decodeCfEmail(hex)
+  );
+  // <span class="__cf_email__" data-cfemail="hex">...</span>
+  html = html.replace(
+    /<span[^>]+data-cfemail="([0-9a-fA-F]+)"[^>]*>[\s\S]*?<\/span>/g,
+    (_, hex) => decodeCfEmail(hex)
+  );
+  return html;
+}
+
+/**
  * Clean EOI HTML description to plain text.
  */
 export function cleanEOIDescription(html: string): string {
@@ -132,7 +164,10 @@ export async function fetchEOIJobDetail(url: string): Promise<EOIJobDetail | nul
       return null;
     }
 
-    const html = await response.text();
+    let html = await response.text();
+
+    // Decode Cloudflare email obfuscation before any processing
+    html = decodeCfEmails(html);
 
     // Detect expired/removed pages
     if (html.includes('هذا الإعلان منتهي') || html.includes('هذه الوظيفة لم تعد متاحة') || html.includes('الصفحة غير موجودة')) {

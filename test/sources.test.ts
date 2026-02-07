@@ -8,6 +8,7 @@ import { RSSPlugin } from '../src/services/sources/rss-shared/plugin';
 import { EOIPlugin } from '../src/services/sources/eoi';
 import { fetchYemenHRJobs } from '../src/services/sources/yemenhr/fetcher';
 import { processYemenHRJob } from '../src/services/sources/yemenhr/processor';
+import { processReliefWebJob } from '../src/services/sources/reliefweb/processor';
 import type { JobItem } from '../src/types';
 
 // ============================================================================
@@ -17,9 +18,10 @@ import type { JobItem } from '../src/types';
 describe('Plugin Registry', () => {
   it('getAllSources should return all registered plugins', () => {
     const sources = getAllSources();
-    expect(sources).toHaveLength(2);
+    expect(sources).toHaveLength(3);
     expect(sources.map(s => s.name)).toContain('yemenhr');
     expect(sources.map(s => s.name)).toContain('eoi');
+    expect(sources.map(s => s.name)).toContain('reliefweb');
   });
 
   it('getSource should return correct plugin by name', () => {
@@ -30,6 +32,10 @@ describe('Plugin Registry', () => {
     const eoi = getSource('eoi');
     expect(eoi).toBeInstanceOf(EOIPlugin);
     expect(eoi.name).toBe('eoi');
+
+    const reliefweb = getSource('reliefweb');
+    expect(reliefweb).toBeInstanceOf(RSSPlugin);
+    expect(reliefweb.name).toBe('reliefweb');
   });
 
   it('getSource should throw for unknown source', () => {
@@ -166,6 +172,238 @@ describe('processYemenHRJob', () => {
     };
     const result = processYemenHRJob(job);
     expect(result.description).toBe('No description available');
+  });
+});
+
+// ============================================================================
+// ReliefWeb Plugin Tests
+// ============================================================================
+
+const SAMPLE_RSS_FEED = `<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+  <channel>
+    <title>ReliefWeb - Yemen Jobs</title>
+    <item>
+      <title>Humanitarian Adviser Yemen</title>
+      <link>https://reliefweb.int/job/4197376/humanitarian-adviser-yemen</link>
+      <guid isPermaLink="true">https://reliefweb.int/job/4197376/humanitarian-adviser-yemen</guid>
+      <pubDate>Thu, 05 Feb 2026 19:42:44 +0000</pubDate>
+      <description>&lt;div class="tag country"&gt;Country: Yemen&lt;/div&gt;&lt;div class="tag source"&gt;Organization: Norwegian Refugee Council&lt;/div&gt;&lt;div class="date closing"&gt;Closing date: 20 Feb 2026&lt;/div&gt;&lt;p&gt;We are looking for a Humanitarian Adviser.&lt;/p&gt;&lt;h2&gt;How to apply&lt;/h2&gt;&lt;p&gt;Apply &lt;a href="https://example.com/apply/20107"&gt;here&lt;/a&gt;&lt;/p&gt;</description>
+      <category>Yemen</category>
+      <category>Norwegian Refugee Council</category>
+      <category>Program/Project Management</category>
+      <author>Norwegian Refugee Council</author>
+    </item>
+  </channel>
+</rss>`;
+
+describe('ReliefWebPlugin (via RSSPlugin)', () => {
+  const plugin = getSource('reliefweb');
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('should have correct name', () => {
+    expect(plugin.name).toBe('reliefweb');
+  });
+
+  it('fetchJobs should parse RSS 2.0 feed', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(SAMPLE_RSS_FEED, { status: 200 })
+    );
+
+    const jobs = await plugin.fetchJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].id).toBe('rw-4197376');
+    expect(jobs[0].title).toBe('Humanitarian Adviser Yemen');
+    expect(jobs[0].company).toBe('Norwegian Refugee Council');
+    expect(jobs[0].link).toBe('https://reliefweb.int/job/4197376/humanitarian-adviser-yemen');
+    expect(jobs[0].source).toBe('reliefweb');
+    expect(jobs[0].pubDate).toBe('Thu, 05 Feb 2026 19:42:44 +0000');
+  });
+
+  it('fetchJobs should not require env vars', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(SAMPLE_RSS_FEED, { status: 200 })
+    );
+
+    // ReliefWeb feed URL is hardcoded, no env vars needed
+    const jobs = await plugin.fetchJobs();
+    expect(jobs).toHaveLength(1);
+  });
+
+  it('processJob should extract metadata from description HTML', async () => {
+    const job: JobItem = {
+      id: 'rw-4197376',
+      title: 'Humanitarian Adviser Yemen',
+      company: 'Norwegian Refugee Council',
+      link: 'https://reliefweb.int/job/4197376/humanitarian-adviser-yemen',
+      pubDate: 'Thu, 05 Feb 2026 19:42:44 +0000',
+      imageUrl: null,
+      description: '<div class="tag country">Country: Yemen</div><div class="tag source">Organization: Norwegian Refugee Council</div><div class="date closing">Closing date: 20 Feb 2026</div><p>We are looking for a Humanitarian Adviser.</p><h2>How to apply</h2><p>Apply <a href="https://example.com/apply/20107">here</a></p>',
+      source: 'reliefweb',
+    };
+
+    const processed = await plugin.processJob(job);
+
+    expect(processed.title).toBe('Humanitarian Adviser Yemen');
+    expect(processed.company).toBe('Norwegian Refugee Council');
+    expect(processed.source).toBe('reliefweb');
+    expect(processed.location).toBe('Yemen');
+    expect(processed.deadline).toBe('20 Feb 2026');
+    expect(processed.description).toContain('Humanitarian Adviser');
+    expect(processed.howToApply).toBeDefined();
+    expect(processed.applicationLinks).toContain('https://example.com/apply/20107');
+  });
+});
+
+// ============================================================================
+// ReliefWeb Processor Tests
+// ============================================================================
+
+describe('processReliefWebJob', () => {
+  it('should extract organization from tag div', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Fallback Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<div class="tag source">Organization: UNICEF</div><p>Job details here.</p>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.company).toBe('UNICEF');
+  });
+
+  it('should fall back to job.company when no organization tag', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Fallback Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<p>Job details without tags.</p>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.company).toBe('Fallback Org');
+  });
+
+  it('should extract closing date', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<div class="date closing">Closing date: 15 Mar 2026</div><p>Details</p>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.deadline).toBe('15 Mar 2026');
+  });
+
+  it('should extract country as location', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<div class="tag country">Country: Yemen</div><p>Details</p>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.location).toBe('Yemen');
+  });
+
+  it('should extract how-to-apply section and application links', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<p>Job description here.</p><h2>How to apply</h2><p>Apply at <a href="https://careers.org/apply/456">this link</a> or email jobs@org.com</p>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.howToApply).toContain('Apply at');
+    expect(result.applicationLinks).toContain('https://careers.org/apply/456');
+    expect(result.applicationLinks).toContain('jobs@org.com');
+  });
+
+  it('should handle description without how-to-apply section', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<p>Just a simple job description.</p>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.howToApply).toBeUndefined();
+    expect(result.applicationLinks).toBeUndefined();
+  });
+
+  it('should handle empty description', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    expect(result.description).toBe('No description available');
+    expect(result.source).toBe('reliefweb');
+  });
+
+  it('should clean HTML and remove metadata divs from description', () => {
+    const job: JobItem = {
+      id: 'rw-123',
+      title: 'Test Job',
+      company: 'Org',
+      link: 'https://reliefweb.int/job/123/test',
+      pubDate: '',
+      imageUrl: null,
+      description: '<div class="tag country">Country: Yemen</div><div class="tag source">Organization: UNICEF</div><div class="date closing">Closing date: 20 Feb 2026</div><p>We need a <strong>senior analyst</strong>.</p><ul><li>Experience required</li><li>Good communication</li></ul>',
+      source: 'reliefweb',
+    };
+
+    const result = processReliefWebJob(job);
+    // Metadata divs should be removed from description text
+    expect(result.description).not.toContain('Country: Yemen');
+    expect(result.description).not.toContain('Organization: UNICEF');
+    expect(result.description).not.toContain('Closing date:');
+    // Job content should remain
+    expect(result.description).toContain('senior analyst');
+    expect(result.description).toContain('Experience required');
   });
 });
 

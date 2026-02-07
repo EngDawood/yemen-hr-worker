@@ -73,10 +73,11 @@ export default {
       }
     }
 
-    // Manual trigger endpoint
+    // Manual trigger endpoint — await processing so the worker stays alive
+    // (ctx.waitUntil on fetch handlers gets killed after ~30s, not enough for 25 jobs)
     if (url.pathname === '/__scheduled') {
-      ctx.waitUntil(processJobs(env));
-      return jsonResponse({ status: 'triggered', timestamp: new Date().toISOString() });
+      const result = await processJobs(env);
+      return jsonResponse({ status: 'complete', ...result, timestamp: new Date().toISOString() });
     }
 
     // Health check / status
@@ -95,8 +96,8 @@ export default {
     // Default response
     return jsonResponse({
       name: 'Yemen Jobs Bot',
-      description: 'Monitors Yemen HR and EOI Yemen for new jobs and posts to Telegram',
-      sources: ['Yemen HR (via RSS Bridge)', 'EOI Yemen (eoi-ye.com)'],
+      description: 'Monitors Yemen HR, EOI Yemen, and ReliefWeb for new jobs and posts to Telegram',
+      sources: ['Yemen HR (via RSS Bridge)', 'EOI Yemen (eoi-ye.com)', 'ReliefWeb (reliefweb.int)'],
       endpoints: {
         '/__scheduled': 'Manually trigger job processing',
         '/health': 'Health check',

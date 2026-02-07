@@ -1,7 +1,7 @@
 import type { JobSource } from '../../types';
 import type { JobSourcePlugin } from './types';
 import { RSSPlugin } from './rss-shared/plugin';
-import { yemenhrConfig } from './rss-shared/configs';
+import { yemenhrConfig, reliefwebConfig } from './rss-shared/configs';
 import { EOIPlugin } from './eoi';
 
 /**
@@ -13,6 +13,7 @@ import { EOIPlugin } from './eoi';
 export const SOURCES: Record<JobSource, JobSourcePlugin> = {
   yemenhr: new RSSPlugin(yemenhrConfig),
   eoi: new EOIPlugin(),
+  reliefweb: new RSSPlugin(reliefwebConfig),
 } as Record<JobSource, JobSourcePlugin>;
 
 /**

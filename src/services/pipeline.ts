@@ -57,7 +57,7 @@ export async function processJobs(env: Env): Promise<{ processed: number; posted
     if (allJobs.length === 0) {
       console.log('No jobs found from any source');
       await sendAlert(env.TELEGRAM_BOT_TOKEN, env.ADMIN_CHAT_ID,
-        'No jobs found from any source. Check if Yemen HR, EOI, or RSS Bridge is down.');
+        'No jobs found from any source. Check if Yemen HR, EOI, ReliefWeb, or RSS Bridge is down.');
       return { processed: 0, posted: 0, skipped: 0, failed: 0 };
     }
 

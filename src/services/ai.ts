@@ -5,6 +5,13 @@ const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'; // Default Workers AI model
 
+/** Models that use OpenAI Responses API format (input + instructions) instead of chat completions (messages) */
+const RESPONSES_API_MODELS = ['@cf/openai/gpt-oss-120b', '@cf/openai/gpt-oss-20b'];
+
+function isResponsesAPIModel(model: string): boolean {
+  return RESPONSES_API_MODELS.some(m => model.startsWith(m));
+}
+
 /** English→Arabic category map for Yemen HR jobs */
 const YEMENHR_CATEGORIES: Record<string, string> = {
   'Development': 'تطوير',
@@ -59,8 +66,10 @@ export interface AISummaryResult {
 
 /**
  * Extract text content from Workers AI response.
- * Handles both standard Workers AI format ({ response: string })
- * and OpenAI chat completion format ({ choices: [{ message: { content: string } }] }).
+ * Handles multiple response formats:
+ * - Standard Workers AI: { response: string }
+ * - Chat completions: { choices: [{ message: { content: string } }] }
+ * - Responses API (gpt-oss): { output: [{ content: [{ text: string }] }] } or { output_text: string }
  */
 function extractAIText(response: unknown): string | null {
   if (!response || typeof response !== 'object') return null;
@@ -75,6 +84,24 @@ function extractAIText(response: unknown): string | null {
   if ('choices' in obj && Array.isArray(obj.choices)) {
     const content = (obj.choices as Array<{ message?: { content?: string } }>)[0]?.message?.content;
     return content || null;
+  }
+
+  // Responses API format: output_text shorthand
+  if ('output_text' in obj && typeof obj.output_text === 'string') {
+    return obj.output_text || null;
+  }
+
+  // Responses API format: output array with content blocks
+  if ('output' in obj && Array.isArray(obj.output)) {
+    for (const item of obj.output as Array<Record<string, unknown>>) {
+      if (item.type === 'message' && Array.isArray(item.content)) {
+        for (const block of item.content as Array<Record<string, unknown>>) {
+          if (block.type === 'output_text' && typeof block.text === 'string') {
+            return block.text || null;
+          }
+        }
+      }
+    }
   }
 
   return null;
@@ -165,18 +192,14 @@ async function callWorkersAI(
 ): Promise<string> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
+      // Use Responses API format for gpt-oss models, chat completions for others
+      const params = isResponsesAPIModel(aiModel)
+        ? { input: prompt, instructions: 'You are a professional Arabic translator and job summarizer.' }
+        : { messages: [{ role: 'user', content: prompt }], max_tokens: 1024, temperature: 0.7 };
+
       const response = await ai.run(
         aiModel as Parameters<typeof ai.run>[0],
-        {
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          max_tokens: 1024,
-          temperature: 0.7,
-        }
+        params as Record<string, unknown>
       );
 
       // Extract text from response (handles both Workers AI and OpenAI formats)

@@ -4,6 +4,7 @@
  */
 
 import type { RSSSourceConfig } from './types';
+import { processReliefWebJob } from '../reliefweb/processor';
 
 /**
  * Yemen HR configuration.
@@ -22,4 +23,19 @@ export const yemenhrConfig: RSSSourceConfig = {
     const match = link.match(/\/jobs\/([^/?#]+)/);
     return match ? match[1] : link;
   },
+};
+
+/**
+ * ReliefWeb Yemen configuration.
+ * Jobs fetched from ReliefWeb's public RSS 2.0 feed filtered for Yemen (C255).
+ */
+export const reliefwebConfig: RSSSourceConfig = {
+  sourceName: 'reliefweb',
+  getFeedUrl: () => 'https://reliefweb.int/jobs/rss.xml?advanced-search=%28C255%29',
+  baseUrl: 'https://reliefweb.int',
+  idExtractor: (link) => {
+    const match = link.match(/\/job\/(\d+)/);
+    return match ? `rw-${match[1]}` : link;
+  },
+  processJob: processReliefWebJob,
 };
