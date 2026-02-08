@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getAllSources, getSource } from '../src/services/sources/registry';
 import { RSSPlugin } from '../src/services/sources/rss-shared/plugin';
 import { EOIPlugin } from '../src/services/sources/eoi';
-import { fetchYemenHRJobs } from '../src/services/sources/yemenhr/fetcher';
+import { fetchAndParseRSSFeed } from '../src/services/sources/rss-shared/rss-parser';
 import { processYemenHRJob } from '../src/services/sources/yemenhr/processor';
 import { processReliefWebJob } from '../src/services/sources/reliefweb/processor';
 import type { JobItem } from '../src/types';
@@ -121,7 +121,7 @@ describe('YemenHRPlugin (via RSSPlugin)', () => {
 // Yemen HR Fetcher Tests (via plugin sources)
 // ============================================================================
 
-describe('fetchYemenHRJobs', () => {
+describe('fetchAndParseRSSFeed (Yemen HR Atom)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });
@@ -135,7 +135,11 @@ describe('fetchYemenHRJobs', () => {
       new Response(SAMPLE_ATOM_FEED, { status: 200 })
     );
 
-    const jobs = await fetchYemenHRJobs('https://example.com/feed');
+    const idExtractor = (link: string) => {
+      const match = link.match(/\/jobs\/([^/?#]+)/);
+      return match ? match[1] : link;
+    };
+    const jobs = await fetchAndParseRSSFeed('https://example.com/feed', 'yemenhr', 'https://yemenhr.com', idExtractor);
     expect(jobs.every(j => j.source === 'yemenhr')).toBe(true);
   });
 });

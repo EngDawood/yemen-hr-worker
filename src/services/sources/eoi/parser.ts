@@ -1,4 +1,5 @@
 import type { EOIJobDetail } from './types';
+import { decodeHtmlEntities, cleanWhitespace } from '../../../utils/html';
 
 /**
  * Decode a Cloudflare email-obfuscation hex string.
@@ -67,20 +68,8 @@ export function cleanEOIDescription(html: string): string {
   // Strip remaining tags
   text = text.replace(/<[^>]+>/g, '');
 
-  // Decode HTML entities
-  text = text.replace(/&#x2F;/g, '/');
-  text = text.replace(/&#x27;/g, "'");
-  text = text.replace(/&quot;/g, '"');
-  text = text.replace(/&amp;/g, '&');
-  text = text.replace(/&nbsp;/g, ' ');
-  text = text.replace(/&lt;/g, '<');
-  text = text.replace(/&gt;/g, '>');
-  text = text.replace(/&[a-z]+;/gi, ' ');
-
-  // Clean whitespace
-  text = text.replace(/[ \t]+/g, ' ');
-  text = text.replace(/\n\s*\n\s*\n/g, '\n\n');
-  text = text.trim();
+  text = decodeHtmlEntities(text);
+  text = cleanWhitespace(text);
 
   return text;
 }
@@ -146,6 +135,61 @@ export function extractHowToApply(html: string): { text: string; links: string[]
 }
 
 /**
+ * Extract description HTML from the detail-adv div.
+ * Tries a precise regex first, then falls back to a broader boundary-based match.
+ */
+function extractDescriptionHtml(html: string): string {
+  const descMatch = html.match(/<div class="detail-adv[^"]*">([\s\S]*?)<\/div>\s*<\/div>/);
+  if (descMatch) return descMatch[1].trim();
+
+  const startIdx = html.indexOf('class="detail-adv');
+  if (startIdx === -1) return '';
+
+  const contentStart = html.indexOf('>', startIdx) + 1;
+  const endPatterns = ['class="div-apply"', 'class="panel"', 'class="sidebar"', 'class="col-md-4"'];
+  let endIdx = html.length;
+  for (const pat of endPatterns) {
+    const idx = html.indexOf(pat, contentStart);
+    if (idx > -1 && idx < endIdx) endIdx = idx;
+  }
+  return html.substring(contentStart, endIdx).trim();
+}
+
+/**
+ * Strip MS Word artifacts (Office XML, Mso classes/styles) from HTML.
+ */
+function stripMSWordArtifacts(html: string): string {
+  return html
+    .replace(/<o:p[^>]*>[\s\S]*?<\/o:p>/gi, '')
+    .replace(/<!\[if[^>]*>[\s\S]*?<!\[endif\]>/gi, '')
+    .replace(/class="Mso[^"]*"/gi, '')
+    .replace(/style="[^"]*mso-[^"]*"/gi, '');
+}
+
+/**
+ * Extract deadline date and optional time from EOI page HTML.
+ */
+function extractDeadline(html: string): string | null {
+  const dateMatch = html.match(/الموعد الاخير\s*:\s*(\d{2}-\d{2}-\d{4})/);
+  if (!dateMatch) return null;
+
+  let deadline = dateMatch[1];
+  const timeMatch = html.match(/الوقت:\s*(\d{2}:\d{2})/);
+  if (timeMatch) {
+    deadline += ' ' + timeMatch[1];
+  }
+  return deadline;
+}
+
+/**
+ * Extract company logo URL from EOI page HTML.
+ */
+function extractLogoUrl(html: string): string | null {
+  const logoMatches = [...html.matchAll(/<img[^>]+src="(https:\/\/eoi-ye\.com\/storage\/users\/[^"]+)"/g)];
+  return logoMatches.length > 0 ? logoMatches[0][1] : null;
+}
+
+/**
  * Fetch and parse a single EOI job detail page.
  * Returns null on any failure (HTTP error, timeout, expired page).
  */
@@ -175,51 +219,12 @@ export async function fetchEOIJobDetail(url: string): Promise<EOIJobDetail | nul
       return null;
     }
 
-    // Extract description from detail-adv div
-    const descMatch = html.match(/<div class="detail-adv[^"]*">([\s\S]*?)<\/div>\s*<\/div>/);
-    let descriptionHtml = descMatch ? descMatch[1].trim() : '';
+    let descriptionHtml = extractDescriptionHtml(html);
+    descriptionHtml = stripMSWordArtifacts(descriptionHtml);
 
-    // If first regex fails, try broader match
-    if (!descriptionHtml) {
-      const startIdx = html.indexOf('class="detail-adv');
-      if (startIdx > -1) {
-        const contentStart = html.indexOf('>', startIdx) + 1;
-        const endPatterns = ['class="div-apply"', 'class="panel"', 'class="sidebar"', 'class="col-md-4"'];
-        let endIdx = html.length;
-        for (const pat of endPatterns) {
-          const idx = html.indexOf(pat, contentStart);
-          if (idx > -1 && idx < endIdx) endIdx = idx;
-        }
-        descriptionHtml = html.substring(contentStart, endIdx).trim();
-      }
-    }
-
-    // Strip MS Word artifacts before processing
-    descriptionHtml = descriptionHtml
-      .replace(/<o:p[^>]*>[\s\S]*?<\/o:p>/gi, '')
-      .replace(/<!\[if[^>]*>[\s\S]*?<!\[endif\]>/gi, '')
-      .replace(/class="Mso[^"]*"/gi, '')
-      .replace(/style="[^"]*mso-[^"]*"/gi, '');
-
-    // Extract company logo
-    const logoMatches = [...html.matchAll(/<img[^>]+src="(https:\/\/eoi-ye\.com\/storage\/users\/[^"]+)"/g)];
-    const imageUrl = logoMatches.length > 0 ? logoMatches[0][1] : null;
-
-    // Extract deadline
-    const deadlineDateMatch = html.match(/الموعد الاخير\s*:\s*(\d{2}-\d{2}-\d{4})/);
-    const deadlineTimeMatch = html.match(/الوقت:\s*(\d{2}:\d{2})/);
-    let deadline: string | null = null;
-    if (deadlineDateMatch) {
-      deadline = deadlineDateMatch[1];
-      if (deadlineTimeMatch) {
-        deadline += ' ' + deadlineTimeMatch[1];
-      }
-    }
-
-    // Extract how-to-apply info
+    const imageUrl = extractLogoUrl(html);
+    const deadline = extractDeadline(html);
     const applyData = extractHowToApply(descriptionHtml);
-
-    // Clean description
     const description = cleanEOIDescription(descriptionHtml);
 
     return {

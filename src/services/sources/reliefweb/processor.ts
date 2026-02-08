@@ -7,6 +7,7 @@
  */
 
 import type { JobItem, ProcessedJob } from '../../../types';
+import { decodeHtmlEntities, cleanWhitespace } from '../../../utils/html';
 
 /** ReliefWeb RSS feed logo (256x256 PNG) — fallback when RSS items have no image */
 const RELIEFWEB_LOGO_URL =
@@ -108,13 +109,9 @@ function extractHowToApply(html: string): { howToApply: string | null; applicati
     .replace(/<\/p>/gi, '\n')
     .replace(/<\/li>/gi, '\n')
     .replace(/<li>/gi, '- ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&[a-z]+;/gi, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n\s*\n\s*\n/g, '\n\n')
-    .trim();
+    .replace(/<[^>]+>/g, ' ');
+  text = decodeHtmlEntities(text);
+  text = cleanWhitespace(text);
 
   return {
     howToApply: text || null,
@@ -142,19 +139,8 @@ function cleanReliefWebHTML(html: string): string {
   text = text.replace(/<h[1-6][^>]*>/gi, '\n');
   text = text.replace(/<[^>]+>/g, ' ');
 
-  // Decode HTML entities
-  text = text.replace(/&amp;/g, '&');
-  text = text.replace(/&nbsp;/g, ' ');
-  text = text.replace(/&quot;/g, '"');
-  text = text.replace(/&#x27;/g, "'");
-  text = text.replace(/&lt;/g, '<');
-  text = text.replace(/&gt;/g, '>');
-  text = text.replace(/&[a-z]+;/gi, ' ');
-
-  // Clean whitespace
-  text = text.replace(/[ \t]+/g, ' ');
-  text = text.replace(/\n\s*\n\s*\n/g, '\n\n');
-  text = text.trim();
+  text = decodeHtmlEntities(text);
+  text = cleanWhitespace(text);
 
   return text;
 }

@@ -35,7 +35,7 @@ TELEGRAM_CHAT_ID = "-1001252486813"  # https://t.me/hr_yemen
 ADMIN_CHAT_ID = "801062947"  # Personal Telegram ID for alerts
 MAX_JOBS_PER_RUN = "25"
 DELAY_BETWEEN_POSTS_MS = "1000"
-LINKEDIN_URL = "https://www.linkedin.com/in/eng-dawood-saleh"
+LINKEDIN_URL = "https://www.linkedin.com/in/dawood3"
 ENVIRONMENT = "production"
 # AI Configuration
 AI_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8"  # Workers AI model for translation/summarization
@@ -72,7 +72,7 @@ TELEGRAM_CHAT_ID = "-1003799523484"  # https://t.me/yemenjobss (preview)
 ADMIN_CHAT_ID = "801062947"  # Personal Telegram ID for alerts
 MAX_JOBS_PER_RUN = "25"
 DELAY_BETWEEN_POSTS_MS = "1000"
-LINKEDIN_URL = "https://www.linkedin.com/in/eng-dawood-saleh"
+LINKEDIN_URL = "https://www.linkedin.com/in/dawood3"
 ENVIRONMENT = "preview"
 # AI Configuration
 AI_MODEL = "@cf/openai/gpt-oss-120b"  # Testing GPT-OSS-120B for better translation quality
