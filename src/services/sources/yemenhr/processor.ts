@@ -1,4 +1,5 @@
 import type { JobItem, ProcessedJob } from '../../../types';
+import { decodeHtmlEntities, cleanWhitespace } from '../../../utils/html';
 
 export interface ExtractedJobData {
   description: string;
@@ -34,18 +35,8 @@ export function cleanJobDescription(html: string): ExtractedJobData {
   text = text.replace(/<li>/gi, '- ');
   text = text.replace(/<[^>]+>/g, ' ');
 
-  // Decode HTML entities
-  text = text.replace(/&#x2F;/g, '/');
-  text = text.replace(/&#x27;/g, "'");
-  text = text.replace(/&quot;/g, '"');
-  text = text.replace(/&amp;/g, '&');
-  text = text.replace(/&nbsp;/g, ' ');
-  text = text.replace(/&[a-z]+;/gi, ' ');
-
-  // Clean whitespace
-  text = text.replace(/[ \t]+/g, ' ');
-  text = text.replace(/\n\s*\n\s*\n/g, '\n\n');
-  text = text.trim();
+  text = decodeHtmlEntities(text);
+  text = cleanWhitespace(text);
 
   // Extract structured data
   const location = extractField(text, [

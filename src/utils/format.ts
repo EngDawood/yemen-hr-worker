@@ -1,4 +1,5 @@
 import type { TelegramMessage, JobSource } from '../types';
+import { stripMarkdown } from './html';
 
 const MAX_CAPTION_LENGTH = 1024; // Telegram photo caption limit (visible text after entities parsing)
 const MAX_TEXT_LENGTH = 4096; // Telegram text message limit (visible text after entities parsing)
@@ -91,10 +92,7 @@ export function formatTelegramMessage(
   const LINKEDIN_URL = linkedinUrl || DEFAULT_LINKEDIN_URL;
 
   // Clean markdown formatting, then escape HTML special chars
-  let cleanedSummary = summary
-    .replace(/\*\*/g, '')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2')
-    .replace(/_([^_]+)_/g, '$1');
+  let cleanedSummary = stripMarkdown(summary);
   cleanedSummary = escapeHtml(cleanedSummary);
 
   // Validate image URL
@@ -147,12 +145,7 @@ ${metadataLine ? metadataLine + '\n\n' : ''}🔗 <a href="${jobLink}">رابط �
     validImageUrl = null;
 
     // Re-expand summary for text (4096 limit)
-    cleanedSummary = escapeHtml(
-      summary
-        .replace(/\*\*/g, '')
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2')
-        .replace(/_([^_]+)_/g, '$1')
-    );
+    cleanedSummary = escapeHtml(stripMarkdown(summary));
     fullMessage = cleanedSummary + footer;
 
     // Truncate for text limit if needed

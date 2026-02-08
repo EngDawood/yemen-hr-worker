@@ -4,8 +4,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchYemenHRJobs as fetchRSSFeed } from '../src/services/sources/yemenhr/fetcher';
 import { fetchAndParseRSSFeed } from '../src/services/sources/rss-shared/rss-parser';
+
+// Wrapper matching the old fetchYemenHRJobs(url) signature for Atom tests
+const yemenhrIdExtractor = (link: string) => {
+  const match = link.match(/\/jobs\/([^/?#]+)/);
+  return match ? match[1] : link;
+};
+const fetchRSSFeed = (url: string) =>
+  fetchAndParseRSSFeed(url, 'yemenhr', 'https://yemenhr.com', yemenhrIdExtractor);
 
 // Sample Atom feed fixtures
 const SINGLE_ENTRY_FEED = `<?xml version="1.0" encoding="UTF-8"?>
