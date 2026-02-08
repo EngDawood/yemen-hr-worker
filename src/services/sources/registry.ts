@@ -13,7 +13,7 @@ import { EOIPlugin } from './eoi';
 export const SOURCES: Record<JobSource, JobSourcePlugin> = {
   yemenhr: new RSSPlugin(yemenhrConfig),
   eoi: new EOIPlugin(),
-  reliefweb: new RSSPlugin(reliefwebConfig),
+  // reliefweb: new RSSPlugin(reliefwebConfig), // DISABLED
 } as Record<JobSource, JobSourcePlugin>;
 
 /**
