@@ -7,7 +7,7 @@ A Cloudflare Worker that monitors [Yemen HR](https://yemenhr.com) for new job li
 - Hourly RSS feed monitoring via RSS Bridge
 - HTML content extraction and cleaning
 - AI-powered Arabic translation using Cloudflare Workers AI
-- Automatic posting to Telegram channel [@yemenjobss](https://t.me/yemenjobss)
+- Automatic posting to Telegram channel [@hr_yemen](https://t.me/hr_yemen)
 - Duplicate detection using KV storage (30-day TTL)
 - D1 database for permanent job archival (ML training data)
 - FIFO ordering (oldest jobs posted first for chronological feed)
