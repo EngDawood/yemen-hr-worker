@@ -116,13 +116,19 @@ export function formatTelegramMessage(
     metadataLine = categoryHashtag ? `${hashtag} | ${categoryHashtag}` : hashtag;
   }
 
-  // Footer uses <a> tags — URLs in href don't count toward Telegram's char limit
   const footer = `
 
 ━━━━━━━━━━━━━━━━━━━━
-${metadataLine ? metadataLine + '\n\n' : ''}🔗 <a href="${jobLink}">رابط الوظيفة</a>
-
-❤️ نتمنى لكم التوفيق! <a href="${LINKEDIN_URL}">تابعونا للمزيد</a>`;
+${metadataLine ? metadataLine + '\n\n' : ''}🔗 رابط الوظيفة
+${jobLink}
+━━━━━━━
+وظائف اليمن
+https://t.me/hr_yemen
+━━━━━━━
+تابعونا على linkedin
+${LINKEDIN_URL}
+━━━━━━━
+نتمنى لكم التوفيق! ❤️`;
 
   let fullMessage = cleanedSummary + footer;
   const limit = validImageUrl ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH;

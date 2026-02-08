@@ -5,6 +5,50 @@
 
 import type { ProcessedJob } from '../types';
 
+const ARABIC_MONTHS = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
+];
+
+const ENGLISH_MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * Convert a date string to Arabic format. Supports:
+ * - "03-02-2026"       → "03 فبراير 2026"  (EOI: DD-MM-YYYY)
+ * - "09-02-2026 23:59" → "09 فبراير 2026"  (EOI: DD-MM-YYYY HH:mm)
+ * - "22 Feb, 26"       → "22 فبراير 2026"  (Yemen HR: DD Mon, YY)
+ * - "22 Feb, 2026"     → "22 فبراير 2026"  (Yemen HR: DD Mon, YYYY)
+ */
+export function formatArabicDate(dateStr: string): string {
+  if (!dateStr) return 'غير محدد';
+
+  // EOI format: DD-MM-YYYY or DD-MM-YYYY HH:mm
+  const numericMatch = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  if (numericMatch) {
+    const [, day, month, year] = numericMatch;
+    const monthIndex = parseInt(month, 10) - 1;
+    if (monthIndex >= 0 && monthIndex <= 11) {
+      return `${day} ${ARABIC_MONTHS[monthIndex]} ${year}`;
+    }
+  }
+
+  // Yemen HR format: DD Mon, YY or DD Mon, YYYY (e.g. "22 Feb, 26")
+  const textMatch = dateStr.match(/(\d{1,2})\s+([A-Za-z]{3}),?\s*(\d{2,4})/);
+  if (textMatch) {
+    const [, day, monthStr, yearStr] = textMatch;
+    const monthIndex = ENGLISH_MONTHS[monthStr.toLowerCase()];
+    if (monthIndex !== undefined) {
+      const year = yearStr.length === 2 ? `20${yearStr}` : yearStr;
+      return `${day} ${ARABIC_MONTHS[monthIndex]} ${year}`;
+    }
+  }
+
+  return dateStr;
+}
+
 /**
  * Build the shared header used by all job messages.
  */
@@ -19,10 +63,10 @@ ${job.company}
 ${job.location || 'غير محدد'}
 
 📅 تاريخ النشر:
-${job.postedDate || 'غير محدد'}
+${formatArabicDate(job.postedDate || '')}
 
 ⏰ آخر موعد للتقديم:
-${job.deadline || 'غير محدد'}
+${formatArabicDate(job.deadline || '')}
 
 ━━━━━━━━━━━━━━━━━━━━`;
 }
