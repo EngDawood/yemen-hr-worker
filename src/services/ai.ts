@@ -1,0 +1,331 @@
+import type { Env, ProcessedJob } from '../types';
+import { delay } from '../utils/format';
+
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 2000; // 2 seconds
+const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'; // Default Workers AI model
+
+/** Models that use OpenAI Responses API format (input + instructions) instead of chat completions (messages) */
+const RESPONSES_API_MODELS = ['@cf/openai/gpt-oss-120b', '@cf/openai/gpt-oss-20b'];
+
+function isResponsesAPIModel(model: string): boolean {
+  return RESPONSES_API_MODELS.some(m => model.startsWith(m));
+}
+
+/** English→Arabic category map for Yemen HR jobs */
+const YEMENHR_CATEGORIES: Record<string, string> = {
+  'Development': 'تطوير',
+  'Healthcare': 'رعاية صحية',
+  'Computers/IT': 'تقنية معلومات',
+  'Finance/Accounting': 'محاسبة ومالية',
+  'Engineering': 'هندسة',
+  'Sales/Marketing': 'مبيعات وتسويق',
+  'Administration': 'إدارة',
+  'Logistics': 'لوجستيك',
+  'Human Resources': 'موارد بشرية',
+  'Communication': 'اتصالات',
+  'Education/Training': 'تعليم وتدريب',
+  'Consulting': 'استشارات',
+  'Others': 'أخرى',
+};
+
+const VALID_CATEGORIES_AR = Object.values(YEMENHR_CATEGORIES);
+
+/**
+ * Extract category label from AI response (first 5 lines).
+ * Looks for `🏷️ الفئة: <category>` pattern.
+ */
+function extractCategoryFromAIResponse(text: string): string {
+  const lines = text.split('\n').slice(0, 5);
+  for (const line of lines) {
+    const match = line.match(/🏷️\s*الفئة:\s*(.+)/);
+    if (match) {
+      const category = match[1].trim();
+      if (VALID_CATEGORIES_AR.includes(category)) return category;
+      // Fuzzy match: check if the AI output contains a known category
+      for (const valid of VALID_CATEGORIES_AR) {
+        if (category.includes(valid) || valid.includes(category)) return valid;
+      }
+      return 'أخرى';
+    }
+  }
+  return 'أخرى';
+}
+
+/**
+ * Remove the category line from AI output (it goes in footer instead).
+ */
+function removeCategoryLine(text: string): string {
+  return text.replace(/🏷️\s*الفئة:.*\n?/, '').trim();
+}
+
+export interface AISummaryResult {
+  summary: string;
+  category: string;
+}
+
+/**
+ * Extract text content from Workers AI response.
+ * Handles multiple response formats:
+ * - Standard Workers AI: { response: string }
+ * - Chat completions: { choices: [{ message: { content: string } }] }
+ * - Responses API (gpt-oss): { output: [{ content: [{ text: string }] }] } or { output_text: string }
+ */
+function extractAIText(response: unknown): string | null {
+  if (!response || typeof response !== 'object') return null;
+  const obj = response as Record<string, unknown>;
+
+  // Workers AI standard format
+  if ('response' in obj && typeof obj.response === 'string') {
+    return obj.response || null;
+  }
+
+  // OpenAI chat completion format (used by Qwen3 and other models)
+  if ('choices' in obj && Array.isArray(obj.choices)) {
+    const content = (obj.choices as Array<{ message?: { content?: string } }>)[0]?.message?.content;
+    return content || null;
+  }
+
+  // Responses API format: output_text shorthand
+  if ('output_text' in obj && typeof obj.output_text === 'string') {
+    return obj.output_text || null;
+  }
+
+  // Responses API format: output array with content blocks
+  if ('output' in obj && Array.isArray(obj.output)) {
+    for (const item of obj.output as Array<Record<string, unknown>>) {
+      if (item.type === 'message' && Array.isArray(item.content)) {
+        for (const block of item.content as Array<Record<string, unknown>>) {
+          if (block.type === 'output_text' && typeof block.text === 'string') {
+            return block.text || null;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build the shared header used by all job messages.
+ */
+export function buildJobHeader(job: ProcessedJob): string {
+  return `📋 المسمى الوظيفي:
+${job.title}
+
+🏢 الجهة:
+${job.company}
+
+📍 الموقع:
+${job.location || 'غير محدد'}
+
+📅 تاريخ النشر:
+${job.postedDate || 'غير محدد'}
+
+⏰ آخر موعد للتقديم:
+${job.deadline || 'غير محدد'}
+
+━━━━━━━━━━━━━━━━━━━━`;
+}
+
+/**
+ * Build a no-AI fallback message from scraped data.
+ * Uses actual scraped content instead of generic "visit link" message.
+ */
+export function buildNoAIFallback(job: ProcessedJob): string {
+  const header = buildJobHeader(job);
+  const parts: string[] = [header];
+
+  // Description section
+  if (job.description && job.description !== 'No description available') {
+    // Truncate long descriptions
+    let desc = job.description;
+    if (desc.length > 600) {
+      desc = desc.substring(0, 597) + '...';
+    }
+    parts.push(`\n📋 الوصف الوظيفي:\n${desc}`);
+  } else {
+    parts.push('\n📋 الوصف الوظيفي:\nالرجاء زيارة رابط الوظيفة للمزيد من التفاصيل.');
+  }
+
+  // How to apply section
+  if (job.howToApply || (job.applicationLinks && job.applicationLinks.length > 0)) {
+    parts.push('\n━━━━━━━━━━━━━━━━━━━━');
+    parts.push('\n📧 كيفية التقديم:');
+
+    if (job.howToApply) {
+      let applyText = job.howToApply;
+      if (applyText.length > 200) {
+        applyText = applyText.substring(0, 197) + '...';
+      }
+      parts.push(applyText);
+    }
+
+    if (job.applicationLinks && job.applicationLinks.length > 0) {
+      for (const link of job.applicationLinks) {
+        if (link.includes('@')) {
+          parts.push(`📩 إيميل: ${link}`);
+        } else if (link.match(/^\+?\d/)) {
+          parts.push(`📱 واتساب/هاتف: ${link}`);
+        } else {
+          parts.push(`🔗 رابط: ${link}`);
+        }
+      }
+    }
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Call Workers AI with retry logic, response validation, and cleanup.
+ * Returns the header + AI content, or falls back to buildNoAIFallback.
+ */
+async function callWorkersAI(
+  ai: Ai,
+  prompt: string,
+  job: ProcessedJob,
+  header: string,
+  sourceLabel: string,
+  aiModel: string = DEFAULT_AI_MODEL
+): Promise<string> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      // Use Responses API format for gpt-oss models, chat completions for others
+      const params = isResponsesAPIModel(aiModel)
+        ? { input: prompt, instructions: 'You are a professional Arabic translator and job summarizer.' }
+        : { messages: [{ role: 'user', content: prompt }], max_tokens: 1024, temperature: 0.7 };
+
+      const response = await ai.run(
+        aiModel as Parameters<typeof ai.run>[0],
+        params as Record<string, unknown>
+      );
+
+      // Extract text from response (handles both Workers AI and OpenAI formats)
+      const text = extractAIText(response);
+
+      if (!text) {
+        console.error(`No text in AI response (${sourceLabel}):`, JSON.stringify(response).substring(0, 500));
+        if (attempt < MAX_RETRIES - 1) {
+          const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+          console.log(`Empty response, retrying after ${waitTime}ms...`);
+          await delay(waitTime);
+          continue;
+        }
+        return buildNoAIFallback(job);
+      }
+
+      // Clean any markdown formatting and remove preamble
+      let cleanedText = text
+        .replace(/\*\*/g, '') // Remove bold
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2') // Convert [text](url) to text: url
+        .replace(/_([^_]+)_/g, '$1'); // Remove italic
+
+      // Remove any preamble before the actual content (starts with 📋)
+      const contentStart = cleanedText.indexOf('📋');
+      if (contentStart > 0) {
+        cleanedText = cleanedText.substring(contentStart);
+      }
+
+      // Combine pre-built header with AI-generated content
+      return header + '\n\n' + cleanedText.trim();
+    } catch (error) {
+      console.error(`Error calling Workers AI (${sourceLabel}, attempt ${attempt + 1}):`, error);
+
+      if (attempt < MAX_RETRIES - 1) {
+        const waitTime = Math.pow(2, attempt) * INITIAL_BACKOFF_MS;
+        console.log(`Error occurred, retry ${attempt + 1}/${MAX_RETRIES} after ${waitTime}ms`);
+        await delay(waitTime);
+        continue;
+      }
+    }
+  }
+
+  console.error(`All retries exhausted (${sourceLabel})`);
+  return buildNoAIFallback(job);
+}
+
+/**
+ * Build the application context string for AI prompts.
+ */
+function buildApplyContext(job: ProcessedJob): string {
+  let context = '';
+  if (job.applicationLinks && job.applicationLinks.length > 0) {
+    context = '\n\nApplication links/contacts (PRESERVE EXACTLY as-is, do not translate or modify):\n' +
+      job.applicationLinks.join('\n');
+  }
+  if (job.howToApply) {
+    context += '\n\nHow to Apply section:\n' + job.howToApply;
+  }
+  return context;
+}
+
+/**
+ * Translates and summarizes a job posting using Cloudflare Workers AI.
+ * Returns both the summary text and an Arabic category label.
+ *
+ * Handles both source types:
+ * - If job.category is already set (e.g., EOI), uses that directly
+ * - If not, asks AI to classify the job into a category
+ */
+export async function summarizeJob(
+  job: ProcessedJob,
+  env: Env
+): Promise<AISummaryResult> {
+  const header = buildJobHeader(job);
+  const hasCategory = !!job.category;
+  const applyContext = buildApplyContext(job);
+
+  // Build category instruction for AI
+  const categoryList = VALID_CATEGORIES_AR.join('، ');
+  const categorySection = hasCategory
+    ? '' // Category already known, don't ask AI to classify
+    : `\n🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]\n`;
+
+  const prompt = `Translate and summarize this job posting to Arabic.
+
+Job Description:
+${job.description}${applyContext}
+
+CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
+- Description section: MAXIMUM 250 characters (count carefully!)
+- How to apply section: MAXIMUM 120 characters total
+- Total output must be under 400 characters to fit Telegram caption limit
+
+CRITICAL RULES:
+- DO NOT include any introduction or preamble
+- Respond ONLY in Arabic
+- BE EXTREMELY CONCISE - use shortest possible wording
+- NO markdown formatting (no **, no _, no []())
+- Use plain text only
+- PRESERVE all URLs, email addresses, and phone numbers EXACTLY as-is (do not translate them)
+- Count characters carefully and stay under limits
+
+Output ONLY this format (nothing else):
+${categorySection}
+📋 الوصف الوظيفي:
+[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
+
+━━━━━━━━━━━━━━━━━━━━
+
+📧 كيفية التقديم:
+[معلومات التقديم فقط - لا تتجاوز 120 حرف:]
+📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
+
+  const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
+  const sourceLabel = job.source || 'unknown';
+  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, sourceLabel, aiModel);
+
+  // Determine category
+  let category: string;
+  if (hasCategory) {
+    category = job.category!;
+  } else {
+    category = extractCategoryFromAIResponse(rawSummary);
+  }
+
+  const summary = removeCategoryLine(rawSummary);
+
+  return { summary, category };
+}

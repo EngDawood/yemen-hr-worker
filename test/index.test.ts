@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { cleanJobDescription } from '../src/services/cleaner';
+import { cleanJobDescription } from '../src/services/sources/yemenhr/processor';
 import { formatTelegramMessage } from '../src/utils/format';
 
 describe('cleanJobDescription', () => {
@@ -75,7 +75,7 @@ describe('formatTelegramMessage', () => {
       null
     );
     expect(result.fullMessage).toContain('https://yemenhr.com/jobs/test');
-    expect(result.fullMessage).toContain('رابط الوظيفة:');
+    expect(result.fullMessage).toContain('رابط الوظيفة</a>');
   });
 
   it('should detect valid image URL', () => {

@@ -12,9 +12,10 @@ export interface Env {
   MAX_JOBS_PER_RUN?: string;
   DELAY_BETWEEN_POSTS_MS?: string;
   LINKEDIN_URL?: string;
+  AI_MODEL?: string; // Workers AI model ID (default: @cf/qwen/qwen3-30b-a3b-fp8)
 }
 
-export type JobSource = 'yemenhr' | 'eoi';
+export type JobSource = 'yemenhr' | 'eoi' | 'reliefweb';
 
 export interface JobItem {
   id: string;
@@ -40,6 +41,8 @@ export interface ProcessedJob {
   deadline?: string;
   howToApply?: string; // How to apply instructions
   applicationLinks?: string[]; // Application URLs, emails, phones
+  source?: JobSource;
+  category?: string;
 }
 
 export interface TelegramMessage {

@@ -1,7 +1,4 @@
-/**
- * HTML cleaner ported from n8n workflow.
- * Extracts and cleans job description from Yemen HR job pages.
- */
+import type { JobItem, ProcessedJob } from '../../../types';
 
 export interface ExtractedJobData {
   description: string;
@@ -10,6 +7,11 @@ export interface ExtractedJobData {
   deadline?: string;
 }
 
+/**
+ * Clean HTML job description and extract structured data.
+ * @param html - Raw HTML content
+ * @returns Cleaned description and extracted metadata
+ */
 export function cleanJobDescription(html: string): ExtractedJobData {
   if (!html) {
     return { description: 'No description available' };
@@ -17,7 +19,7 @@ export function cleanJobDescription(html: string): ExtractedJobData {
 
   let text = html;
 
-  // Remove unwanted sections (from n8n workflow)
+  // Remove unwanted sections
   text = text.replace(/Important Notes[\s\S]*$/i, '');
   text = text.replace(/Time Remaining[\s\S]*$/i, '');
   text = text.replace(/Save & Share[\s\S]*$/i, '');
@@ -124,4 +126,25 @@ function extractField(text: string, patterns: RegExp[]): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Process a Yemen HR job item.
+ * @param job - Raw job from RSS feed
+ * @returns Processed job ready for AI
+ */
+export function processYemenHRJob(job: JobItem): ProcessedJob {
+  const cleaned = cleanJobDescription(job.description || '');
+
+  return {
+    title: job.title,
+    company: job.company,
+    link: job.link,
+    description: cleaned.description,
+    imageUrl: job.imageUrl,
+    location: cleaned.location,
+    postedDate: cleaned.postedDate,
+    deadline: cleaned.deadline,
+    source: 'yemenhr',
+  };
 }

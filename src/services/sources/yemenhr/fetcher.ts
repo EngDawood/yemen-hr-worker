@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import type { JobItem } from '../types';
+import type { JobItem } from '../../../types';
 
 interface AtomLink {
   '@_rel'?: string;
@@ -15,7 +15,7 @@ interface AtomEntry {
   published?: string;
   updated?: string;
   enclosure?: { '@_url'?: string } | string;
-  content?: string | { '#text'?: string; '@_type'?: string }; // Full job description from expanded RSS
+  content?: string | { '#text'?: string; '@_type'?: string };
 }
 
 interface AtomFeed {
@@ -24,7 +24,12 @@ interface AtomFeed {
   };
 }
 
-export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
+/**
+ * Fetch Yemen HR jobs from RSS feed.
+ * @param url - RSS feed URL
+ * @returns Array of job items
+ */
+export async function fetchYemenHRJobs(url: string): Promise<JobItem[]> {
   const response = await fetch(url, {
     headers: {
       'User-Agent': 'Yemen-HR-Bot/1.0',
@@ -126,6 +131,7 @@ export async function fetchRSSFeed(url: string): Promise<JobItem[]> {
       pubDate: entry.published || entry.updated || '',
       imageUrl,
       description,
+      source: 'yemenhr',
     };
   });
 }

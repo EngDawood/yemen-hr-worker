@@ -89,6 +89,7 @@ export async function sendPhotoMessage(
     const formData = new FormData();
     formData.append('chat_id', chatId);
     formData.append('caption', caption);
+    formData.append('parse_mode', 'HTML');
     formData.append('photo', imageBlob, 'photo.jpg');
 
     const response = await fetch(
