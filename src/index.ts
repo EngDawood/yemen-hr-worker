@@ -80,6 +80,16 @@ export default {
       return jsonResponse({ status: 'complete', ...result, timestamp: new Date().toISOString() });
     }
 
+    // Clear KV cache (preview only)
+    if (url.pathname === '/clear-kv' && env.ENVIRONMENT === 'preview') {
+      const jobList = await env.POSTED_JOBS.list({ prefix: 'job:', limit: 1000 });
+      const dedupList = await env.POSTED_JOBS.list({ prefix: 'dedup:', limit: 1000 });
+      const metaList = await env.POSTED_JOBS.list({ prefix: 'meta:', limit: 100 });
+      const allKeys = [...jobList.keys, ...dedupList.keys, ...metaList.keys];
+      await Promise.all(allKeys.map(k => env.POSTED_JOBS.delete(k.name)));
+      return jsonResponse({ cleared: allKeys.length, keys: allKeys.map(k => k.name) });
+    }
+
     // Health check / status
     if (url.pathname === '/health') {
       return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
