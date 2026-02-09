@@ -15,7 +15,7 @@ export interface Env {
   AI_MODEL?: string; // Workers AI model ID (default: @cf/qwen/qwen3-30b-a3b-fp8)
 }
 
-export type JobSource = 'yemenhr' | 'eoi' | 'reliefweb';
+export type { JobSource } from './services/sources/registry';
 
 export interface JobItem {
   id: string;
@@ -25,7 +25,7 @@ export interface JobItem {
   pubDate: string;
   imageUrl: string | null;
   description?: string; // Full job description from expanded RSS feed
-  source?: JobSource; // Job source for cross-source deduplication
+  source?: string; // Job source identifier (validated at registry level)
   howToApply?: string; // How to apply instructions
   applicationLinks?: string[]; // Application URLs, emails, phones
 }
@@ -41,7 +41,7 @@ export interface ProcessedJob {
   deadline?: string;
   howToApply?: string; // How to apply instructions
   applicationLinks?: string[]; // Application URLs, emails, phones
-  source?: JobSource;
+  source?: string; // Job source identifier (validated at registry level)
   category?: string;
 }
 

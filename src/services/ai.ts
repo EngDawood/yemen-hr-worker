@@ -8,6 +8,8 @@ import { delay } from '../utils/format';
 import { stripMarkdown } from '../utils/html';
 import { buildJobHeader, buildNoAIFallback, buildApplyContext } from './ai-format';
 import { VALID_CATEGORIES_AR, extractCategoryFromAIResponse, removeCategoryLine } from './ai-parse';
+import { getPromptConfig } from './ai-prompts';
+import { DEFAULT_SOURCE } from './sources/registry';
 
 // Re-export for backward compatibility (tests + other modules import from './ai')
 export { buildJobHeader, buildNoAIFallback } from './ai-format';
@@ -140,9 +142,9 @@ async function callWorkersAI(
  * Translates and summarizes a job posting using Cloudflare Workers AI.
  * Returns both the summary text and an Arabic category label.
  *
- * Handles both source types:
- * - If job.category is already set (e.g., EOI), uses that directly
- * - If not, asks AI to classify the job into a category
+ * Uses per-source prompt config to control output sections:
+ * - Sources with howToApply data (eoi, reliefweb): include apply section
+ * - Sources without: omit apply section entirely to prevent hallucination
  */
 export async function summarizeJob(
   job: ProcessedJob,
@@ -150,7 +152,11 @@ export async function summarizeJob(
 ): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
   const hasCategory = !!job.category;
-  const applyContext = buildApplyContext(job);
+  const source = job.source || DEFAULT_SOURCE;
+  const promptConfig = await getPromptConfig(source, env);
+
+  // Only include apply context when source actually provides apply data
+  const applyContext = promptConfig.includeHowToApply ? buildApplyContext(job) : '';
 
   // Build category instruction for AI
   const categoryList = VALID_CATEGORIES_AR.join('، ');
@@ -158,15 +164,37 @@ export async function summarizeJob(
     ? '' // Category already known, don't ask AI to classify
     : `\n🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]\n`;
 
-  const prompt = `Translate and summarize this job posting to Arabic.
+  // Source hint gives AI context about the data shape
+  const sourceHintSection = promptConfig.sourceHint
+    ? `\nSOURCE CONTEXT: ${promptConfig.sourceHint}\n`
+    : '';
 
+  // Conditional apply output template
+  const applyOutputTemplate = promptConfig.includeHowToApply
+    ? `\n\n━━━━━━━━━━━━━━━━━━━━\n\n📧 كيفية التقديم:\n[معلومات التقديم فقط - لا تتجاوز 120 حرف:]\n📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`
+    : '';
+
+  // Without apply section, description gets more character budget
+  const descLimit = promptConfig.includeHowToApply ? 250 : 350;
+  const totalLimit = promptConfig.includeHowToApply ? 400 : 380;
+
+  const applyLimitLine = promptConfig.includeHowToApply
+    ? '\n- How to apply section: MAXIMUM 120 characters total'
+    : '';
+
+  // Anti-hallucination rule for sources without apply data
+  const noApplyRule = promptConfig.includeHowToApply
+    ? ''
+    : '\n- DO NOT include any how-to-apply section, contact information, emails, phone numbers, or application links';
+
+  const prompt = `Translate and summarize this job posting to Arabic.
+${sourceHintSection}
 Job Description:
 ${job.description}${applyContext}
 
 CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
-- Description section: MAXIMUM 250 characters (count carefully!)
-- How to apply section: MAXIMUM 120 characters total
-- Total output must be under 400 characters to fit Telegram caption limit
+- Description section: MAXIMUM ${descLimit} characters (count carefully!)${applyLimitLine}
+- Total output must be under ${totalLimit} characters to fit Telegram caption limit
 
 CRITICAL RULES:
 - DO NOT include any introduction or preamble
@@ -175,21 +203,15 @@ CRITICAL RULES:
 - NO markdown formatting (no **, no _, no []())
 - Use plain text only
 - PRESERVE all URLs, email addresses, and phone numbers EXACTLY as-is (do not translate them)
-- Count characters carefully and stay under limits
+- Count characters carefully and stay under limits${noApplyRule}
 
 Output ONLY this format (nothing else):
 ${categorySection}
 📋 الوصف الوظيفي:
-[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
-
-━━━━━━━━━━━━━━━━━━━━
-
-📧 كيفية التقديم:
-[معلومات التقديم فقط - لا تتجاوز 120 حرف:]
-📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
+[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز ${descLimit} حرف]${applyOutputTemplate}`;
 
   const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
-  const sourceLabel = job.source || 'unknown';
+  const sourceLabel = source;
   const rawSummary = await callWorkersAI(env.AI, prompt, job, header, sourceLabel, aiModel);
 
   // Determine category
@@ -200,7 +222,12 @@ ${categorySection}
     category = extractCategoryFromAIResponse(rawSummary);
   }
 
-  const summary = removeCategoryLine(rawSummary);
+  let summary = removeCategoryLine(rawSummary);
+
+  // Append static fallback apply section for sources without AI-generated apply data
+  if (!promptConfig.includeHowToApply && promptConfig.applyFallback) {
+    summary += `\n\n━━━━━━━━━━━━━━━━━━━━\n\n📧 كيفية التقديم:\n${promptConfig.applyFallback}`;
+  }
 
   return { summary, category };
 }
