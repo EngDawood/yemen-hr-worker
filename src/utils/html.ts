@@ -7,8 +7,10 @@
  * Decode common HTML entities to their characters.
  */
 export function decodeHtmlEntities(text: string): string {
-  text = text.replace(/&#x2F;/g, '/');
-  text = text.replace(/&#x27;/g, "'");
+  // Decode numeric entities first: &#x28; → (, &#39; → '
+  text = text.replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  text = text.replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+  // Named entities
   text = text.replace(/&quot;/g, '"');
   text = text.replace(/&amp;/g, '&');
   text = text.replace(/&nbsp;/g, ' ');

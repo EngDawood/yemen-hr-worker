@@ -1,0 +1,1 @@
+export { processYKBankJob } from './processor';

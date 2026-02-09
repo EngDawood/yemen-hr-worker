@@ -1,7 +1,7 @@
 interface TelegramResponse {
   ok: boolean;
   description?: string;
-  result?: unknown;
+  result?: { message_id?: number; [key: string]: unknown };
 }
 
 /**
@@ -44,8 +44,77 @@ export async function sendTextMessage(
 }
 
 /**
- * Send a photo with caption to Telegram.
+ * Send a text message and return the message_id for later editing.
  */
+export async function sendMessageWithId(
+  botToken: string,
+  chatId: string,
+  text: string
+): Promise<number | null> {
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
+      }
+    );
+
+    const data: TelegramResponse = await response.json();
+    if (!data.ok || !data.result?.message_id) {
+      console.error('Telegram sendMessage error:', data.description);
+      return null;
+    }
+    return data.result.message_id;
+  } catch (error) {
+    console.error('Error sending Telegram message:', error);
+    return null;
+  }
+}
+
+/**
+ * Edit an existing message by message_id.
+ */
+export async function editMessageText(
+  botToken: string,
+  chatId: string,
+  messageId: number,
+  text: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/bot${botToken}/editMessageText`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: messageId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
+      }
+    );
+
+    const data: TelegramResponse = await response.json();
+    if (!data.ok) {
+      console.error('Telegram editMessageText error:', data.description);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error editing Telegram message:', error);
+    return false;
+  }
+}
+
 /**
  * Send alert to admin via Telegram.
  */
@@ -58,6 +127,43 @@ export async function sendAlert(
 
   const text = `⚠️ <b>Yemen HR Bot Alert</b>\n\n${message}\n\n<i>${new Date().toISOString()}</i>`;
   await sendTextMessage(botToken, String(adminChatId), text);
+}
+
+/**
+ * Register bot command menu via setMyCommands API.
+ * Scoped to a single admin user so commands don't show for others.
+ */
+export async function setMyCommands(
+  botToken: string,
+  commands: Array<{ command: string; description: string }>,
+  adminUserId?: string
+): Promise<boolean> {
+  try {
+    const body: Record<string, unknown> = { commands };
+    // Scope to admin's private chat only
+    if (adminUserId) {
+      body.scope = { type: 'chat', chat_id: Number(adminUserId) };
+    }
+
+    const response = await fetch(
+      `https://api.telegram.org/bot${botToken}/setMyCommands`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    );
+
+    const data: TelegramResponse = await response.json();
+    if (!data.ok) {
+      console.error('Telegram setMyCommands error:', data.description);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error setting bot commands:', error);
+    return false;
+  }
 }
 
 /**
