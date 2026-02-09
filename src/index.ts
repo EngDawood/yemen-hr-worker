@@ -1,10 +1,8 @@
 import type { Env } from './types';
 import type { TelegramUpdate } from './types/telegram';
-import { sendTextMessage, setMyCommands } from './services/telegram';
-import { handleWebhook, BOT_COMMANDS } from './services/commands';
+import { sendTextMessage } from './services/telegram';
+import { handleWebhook } from './services/commands';
 import { processJobs } from './services/pipeline';
-import { syncSourcesTable } from './services/sources/registry';
-import { clearAllKV } from './services/storage';
 import { jsonResponse } from './utils/http';
 
 const DEPLOY_VERSION_KEY = 'meta:deployed_version';
@@ -48,7 +46,6 @@ export default {
   ): Promise<void> {
     console.log(`Cron triggered at ${new Date().toISOString()}`);
     ctx.waitUntil(checkDeployNotification(env));
-    ctx.waitUntil(syncSourcesTable(env));
     ctx.waitUntil(processJobs(env));
   },
 
@@ -83,16 +80,14 @@ export default {
       return jsonResponse({ status: 'complete', ...result, timestamp: new Date().toISOString() });
     }
 
-    // Register bot command menu with Telegram (preview only, one-time setup)
-    if (url.pathname === '/set-commands' && env.ENVIRONMENT === 'preview') {
-      const ok = await setMyCommands(env.TELEGRAM_BOT_TOKEN, BOT_COMMANDS, env.ADMIN_CHAT_ID);
-      return jsonResponse({ ok, commands: BOT_COMMANDS.length });
-    }
-
     // Clear KV cache (preview only)
     if (url.pathname === '/clear-kv' && env.ENVIRONMENT === 'preview') {
-      const result = await clearAllKV(env);
-      return jsonResponse({ cleared: result.total, keys: result.keyNames });
+      const jobList = await env.POSTED_JOBS.list({ prefix: 'job:', limit: 1000 });
+      const dedupList = await env.POSTED_JOBS.list({ prefix: 'dedup:', limit: 1000 });
+      const metaList = await env.POSTED_JOBS.list({ prefix: 'meta:', limit: 100 });
+      const allKeys = [...jobList.keys, ...dedupList.keys, ...metaList.keys];
+      await Promise.all(allKeys.map(k => env.POSTED_JOBS.delete(k.name)));
+      return jsonResponse({ cleared: allKeys.length, keys: allKeys.map(k => k.name) });
     }
 
     // Health check / status
@@ -118,8 +113,6 @@ export default {
         '/health': 'Health check',
         '/api/jobs': 'Export all jobs data (JSON)',
         '/webhook': 'Telegram webhook for admin commands (POST)',
-        '/set-commands': 'Register bot command menu (preview only)',
-        '/clear-kv': 'Clear all KV keys (preview only)',
       },
     });
   },
