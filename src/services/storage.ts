@@ -91,14 +91,15 @@ export async function saveJobToDatabase(
   job: ProcessedJob,
   rawDescription: string,
   aiSummary: string,
-  source: JobSource = 'yemenhr'
+  source: JobSource = 'rss'
 ): Promise<void> {
   try {
+    // COALESCE validates source against sources table, falls back to 'yemenhr' if unknown
     await env.JOBS_DB.prepare(`
       INSERT OR REPLACE INTO jobs
       (id, title, company, location, description_raw, description_clean,
        ai_summary_ar, image_url, source_url, posted_at, word_count, source, category)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT id FROM sources WHERE id = ?), 'rss'), ?)
     `).bind(
       jobId,
       job.title,
@@ -118,6 +119,59 @@ export async function saveJobToDatabase(
     console.error('Failed to save job to D1:', error);
     // Don't throw - D1 failure shouldn't stop Telegram posting
   }
+}
+
+// ============================================================================
+// Sources Table Functions
+// ============================================================================
+
+export interface SourceRecord {
+  id: string;
+  display_name: string;
+  hashtag: string;
+  type: string;
+  base_url: string;
+  feed_url: string | null;
+  enabled: number;
+  created_at: string;
+}
+
+/**
+ * Get all sources from D1.
+ */
+export async function getAllSources(env: Env): Promise<SourceRecord[]> {
+  const result = await env.JOBS_DB.prepare('SELECT * FROM sources ORDER BY enabled DESC, id').all<SourceRecord>();
+  return result.results;
+}
+
+/**
+ * Get only enabled sources.
+ */
+export async function getEnabledSources(env: Env): Promise<SourceRecord[]> {
+  const result = await env.JOBS_DB.prepare('SELECT * FROM sources WHERE enabled = 1 ORDER BY id').all<SourceRecord>();
+  return result.results;
+}
+
+/**
+ * Get a single source by ID.
+ */
+export async function getSourceById(env: Env, sourceId: string): Promise<SourceRecord | null> {
+  const result = await env.JOBS_DB.prepare('SELECT * FROM sources WHERE id = ?').bind(sourceId).first<SourceRecord>();
+  return result ?? null;
+}
+
+/**
+ * Get job count per source.
+ */
+export async function getSourceStats(env: Env): Promise<Array<{ source: string; job_count: number }>> {
+  const result = await env.JOBS_DB.prepare(`
+    SELECT s.id AS source, COUNT(j.id) AS job_count
+    FROM sources s
+    LEFT JOIN jobs j ON j.source = s.id
+    GROUP BY s.id
+    ORDER BY job_count DESC
+  `).all<{ source: string; job_count: number }>();
+  return result.results;
 }
 
 // ============================================================================
@@ -225,4 +279,35 @@ export async function searchJobsInKV(env: Env, keyword: string): Promise<KVJobEn
   return allJobs.filter(job =>
     job.title.toLowerCase().includes(lowerKeyword)
   );
+}
+
+export interface ClearKVResult {
+  jobKeys: number;
+  dedupKeys: number;
+  metaKeys: number;
+  total: number;
+  keyNames: string[];
+}
+
+/**
+ * Clear all job:, dedup:, and meta: keys from KV.
+ * Shared by /clear all command and /clear-kv HTTP endpoint.
+ */
+export async function clearAllKV(env: Env): Promise<ClearKVResult> {
+  const [jobList, dedupList, metaList] = await Promise.all([
+    env.POSTED_JOBS.list({ prefix: 'job:', limit: 1000 }),
+    env.POSTED_JOBS.list({ prefix: 'dedup:', limit: 1000 }),
+    env.POSTED_JOBS.list({ prefix: 'meta:', limit: 100 }),
+  ]);
+
+  const allKeys = [...jobList.keys, ...dedupList.keys, ...metaList.keys];
+  await Promise.all(allKeys.map(k => env.POSTED_JOBS.delete(k.name)));
+
+  return {
+    jobKeys: jobList.keys.length,
+    dedupKeys: dedupList.keys.length,
+    metaKeys: metaList.keys.length,
+    total: allKeys.length,
+    keyNames: allKeys.map(k => k.name),
+  };
 }

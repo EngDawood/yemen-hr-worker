@@ -4,9 +4,10 @@ import { stripMarkdown } from './html';
 const MAX_CAPTION_LENGTH = 1024; // Telegram photo caption limit (visible text after entities parsing)
 const MAX_TEXT_LENGTH = 4096; // Telegram text message limit (visible text after entities parsing)
 const SEPARATOR = '━━━━━━━━━━━━━━━━━━━━';
-const DEFAULT_LINKEDIN_URL = 'https://www.linkedin.com/in/eng-dawood-saleh';
+const DEFAULT_LINKEDIN_URL = 'https://www.linkedin.com/in/dawood3';
 
 const SOURCE_HASHTAGS: Record<JobSource, string> = {
+  rss: '#وظائف',
   yemenhr: '#YemenHR',
   eoi: '#EOI',
   reliefweb: '#ReliefWeb',

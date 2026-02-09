@@ -5,6 +5,7 @@
 
 import type { RSSSourceConfig } from './types';
 import { processReliefWebJob } from '../reliefweb/processor';
+import { processYKBankJob } from '../ykbank/processor';
 
 /**
  * Yemen HR configuration.
@@ -53,4 +54,5 @@ export const ykbankConfig: RSSSourceConfig = {
     const match = link.match(/\/(\d+)\//);
     return match ? `ykbank-${match[1]}` : link;
   },
+  processJob: processYKBankJob,
 };

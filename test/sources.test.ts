@@ -19,12 +19,11 @@ import type { JobItem } from '../src/types';
 describe('Plugin Registry', () => {
   it('getAllSources should return all registered (active) plugins', () => {
     const sources = getAllSources();
-    expect(sources).toHaveLength(7);
+    expect(sources).toHaveLength(6); // ykbank removed (stale feed since Dec 2024)
     const names = sources.map(s => s.name);
     expect(names).toContain('yemenhr');
     expect(names).toContain('eoi');
     expect(names).toContain('reliefweb');
-    expect(names).toContain('ykbank');
     expect(names).toContain('kuraimi');
     expect(names).toContain('qtb');
     expect(names).toContain('yldf');
