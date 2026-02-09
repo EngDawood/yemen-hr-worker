@@ -34,7 +34,12 @@ export interface ScraperSourceConfig {
     postedDate?: string;
     /** Deadline element selector (relative to container) */
     deadline?: string;
+    /** Category element selector (relative to container) */
+    category?: string;
   };
+
+  /** CSS selectors for elements to remove from each container before extracting fields */
+  listingCleanupSelectors?: string[];
 
   /** Extract a unique job ID from a link URL or path */
   idExtractor: (link: string, title?: string) => string;
@@ -48,7 +53,15 @@ export interface ScraperSourceConfig {
     descriptionSelector: string;
     /** CSS selectors for elements to remove before extracting description */
     cleanupSelectors?: string[];
+    /** CSS selector for image on the detail page (extracts src). Overrides listing-page image. */
+    imageSelector?: string;
   };
+
+  /** Custom HTTP headers for the listing page request */
+  fetchHeaders?: Record<string, string>;
+
+  /** Extract HTML from a non-HTML response (e.g., JSON API returning {table_data: "<html>"}) */
+  responseExtractor?: (body: string) => string;
 
   /** Optional custom job processor override */
   processJob?: (job: JobItem) => ProcessedJob;

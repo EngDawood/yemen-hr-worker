@@ -15,8 +15,13 @@ export async function fetchAndParseHTMLJobs(
   const url = config.getListingUrl();
   const { baseUrl, selectors, idExtractor, defaultCompany } = config;
 
+  const headers: Record<string, string> = {
+    'User-Agent': 'Yemen-Jobs-Bot/1.0',
+    ...config.fetchHeaders,
+  };
+
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'Yemen-Jobs-Bot/1.0' },
+    headers,
     signal: AbortSignal.timeout(10000),
   });
 
@@ -24,7 +29,11 @@ export async function fetchAndParseHTMLJobs(
     throw new Error(`Scraper fetch failed for ${config.sourceName}: ${response.status} ${response.statusText}`);
   }
 
-  const html = await response.text();
+  const body = await response.text();
+
+  // Extract HTML from response body (e.g., JSON API wrapping HTML in a field)
+  const html = config.responseExtractor ? config.responseExtractor(body) : body;
+
   const doc = parseHTML(html);
   const containers = doc.querySelectorAll(selectors.jobContainer);
 
@@ -36,6 +45,15 @@ export async function fetchAndParseHTMLJobs(
   const jobs: JobItem[] = [];
 
   for (const container of containers) {
+    // Remove noise elements (e.g., EOI's .jop-head labels) before extracting fields
+    if (config.listingCleanupSelectors) {
+      for (const sel of config.listingCleanupSelectors) {
+        for (const el of container.querySelectorAll(sel)) {
+          el.remove();
+        }
+      }
+    }
+
     const title = extractText(container, selectors.title);
     if (!title) continue;
 
@@ -44,7 +62,16 @@ export async function fetchAndParseHTMLJobs(
     let link: string | null = null;
 
     if (linkAttr === 'href') {
+      // Try selector inside container first, then fall back to container itself
+      // (handles case where container IS the <a> element, e.g., EOI)
       link = extractAttr(container, selectors.link, 'href', baseUrl);
+      if (!link) {
+        const rawHref = container.getAttribute('href');
+        if (rawHref) {
+          const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+          link = rawHref.startsWith('http') ? rawHref : `${base}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
+        }
+      }
     } else {
       // Custom attribute (like 'id') — read raw value and resolve against baseUrl.
       // querySelector can't match the container itself, so fall back to container
@@ -65,12 +92,16 @@ export async function fetchAndParseHTMLJobs(
     const company = (selectors.company ? extractText(container, selectors.company) : null) || defaultCompany || 'Unknown Company';
     const imageUrl = selectors.image ? extractAttr(container, selectors.image, 'src', baseUrl) : null;
     const location = selectors.location ? extractText(container, selectors.location) : undefined;
+    const postedDate = selectors.postedDate ? extractText(container, selectors.postedDate) : undefined;
     const deadline = selectors.deadline ? extractText(container, selectors.deadline) : undefined;
+    const category = selectors.category ? extractText(container, selectors.category) : undefined;
 
     // Build description from available listing-page metadata
     const parts: string[] = [];
     if (location) parts.push(`Location: ${location}`);
+    if (postedDate) parts.push(`PostedDate: ${postedDate}`);
     if (deadline) parts.push(`Deadline: ${deadline}`);
+    if (category) parts.push(`Category: ${category}`);
 
     jobs.push({
       id,

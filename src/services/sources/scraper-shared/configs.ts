@@ -1,9 +1,80 @@
 /**
  * Scraper source configurations.
  * Each config defines CSS selectors and extraction logic for an SSR job site.
+ * Also handles JSON API sources via responseExtractor (e.g., EOI).
  */
 
 import type { ScraperSourceConfig } from './types';
+
+/**
+ * Yemen HR — yemenhr.com/jobs
+ * SSR table layout. Replaces RSS Bridge (eliminates external dependency).
+ */
+export const yemenhrScraperConfig: ScraperSourceConfig = {
+  sourceName: 'yemenhr',
+  getListingUrl: () => 'https://yemenhr.com/jobs',
+  baseUrl: 'https://yemenhr.com',
+  selectors: {
+    jobContainer: 'tbody tr',
+    title: 'td:nth-child(3) a',
+    link: 'td:nth-child(3) a',
+    company: 'td:nth-child(2) a',
+    image: 'td:nth-child(2) img',
+    location: 'td:nth-child(4)',
+    postedDate: 'td:nth-child(1)',
+    deadline: 'td:nth-child(5)',
+  },
+  idExtractor: (link) => {
+    // URL: https://yemenhr.com/jobs/some-job-slug-abcd1234
+    const match = link.match(/\/jobs\/([^/?#]+)/);
+    return match ? match[1] : link;
+  },
+  detailPage: {
+    descriptionSelector: '.job-description-container',
+    cleanupSelectors: ['script', 'style', 'svg', '.no-print', '.countdown-timer'],
+  },
+};
+
+/**
+ * EOI Yemen — eoi-ye.com
+ * JSON API returning HTML fragment. Uses responseExtractor to unwrap.
+ */
+export const eoiScraperConfig: ScraperSourceConfig = {
+  sourceName: 'eoi',
+  getListingUrl: () => 'https://eoi-ye.com/live_search/action1?type=0&title=',
+  baseUrl: 'https://eoi-ye.com',
+  selectors: {
+    // Each job is an <a> wrapping .job-content — container IS the link
+    jobContainer: 'a',
+    title: '.col-md-3 div',
+    link: 'a', // falls back to container's own href
+    company: '.col-md-2:nth-of-type(4)',
+    location: '.col-md-2:nth-of-type(5)',
+    deadline: '.col-md-2:nth-of-type(6)',
+    category: '.col-md-2:nth-of-type(3)',
+  },
+  // Remove Arabic label headers (بواسطة :, فئة:, etc.) before extracting text
+  listingCleanupSelectors: ['.jop-head'],
+  idExtractor: (link) => {
+    // URL: https://eoi-ye.com/jobs/21270/
+    const match = link.match(/\/jobs\/(\d+)/);
+    return match ? `eoi-${match[1]}` : link;
+  },
+  fetchHeaders: {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json',
+    'Referer': 'https://eoi-ye.com/jobs',
+  },
+  responseExtractor: (body) => {
+    const data = JSON.parse(body) as { table_data?: string };
+    return data.table_data || '';
+  },
+  detailPage: {
+    descriptionSelector: '.detail-adv',
+    cleanupSelectors: ['script', 'style', 'o\\:p'],
+    imageSelector: 'img.img-responsive.thumbnail',
+  },
+};
 
 /**
  * Kuraimi Bank — jobs.kuraimibank.com

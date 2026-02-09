@@ -7,7 +7,7 @@ import type { Env, JobItem, ProcessedJob } from '../../../types';
 import type { JobSourcePlugin } from '../types';
 import type { ScraperSourceConfig } from './types';
 import { fetchAndParseHTMLJobs } from './fetcher';
-import { parseHTML, extractText } from './html-parser';
+import { parseHTML, extractText, extractAttr } from './html-parser';
 import { htmlToText, cleanWhitespace } from '../../../utils/html';
 
 export class ScraperPlugin implements JobSourcePlugin {
@@ -30,8 +30,17 @@ export class ScraperPlugin implements JobSourcePlugin {
     }
 
     let description = job.description || '';
-    let location: string | undefined;
-    let deadline: string | undefined;
+    let imageUrl = job.imageUrl;
+
+    // Parse structured metadata from listing-page description BEFORE detail page overwrites it
+    const locMatch = description.match(/Location:\s*(.+)/i);
+    const location = locMatch ? locMatch[1].trim() : undefined;
+    const pdMatch = description.match(/PostedDate:\s*(.+)/i);
+    const postedDate = pdMatch ? pdMatch[1].trim() : undefined;
+    const dlMatch = description.match(/Deadline:\s*(.+)/i);
+    const deadline = dlMatch ? dlMatch[1].trim() : undefined;
+    const catMatch = description.match(/Category:\s*(.+)/i);
+    const category = catMatch ? catMatch[1].trim() : undefined;
 
     // Fetch detail page for full description if configured
     if (this.config.detailPage) {
@@ -53,6 +62,11 @@ export class ScraperPlugin implements JobSourcePlugin {
           if (descEl) {
             description = cleanWhitespace(htmlToText(descEl.innerHTML));
           }
+
+          // Extract image from detail page if configured and no listing-page image
+          if (this.config.detailPage.imageSelector && !imageUrl) {
+            imageUrl = extractAttr(doc, this.config.detailPage.imageSelector, 'src', this.config.baseUrl);
+          }
         }
       } catch (err) {
         // Detail page fetch failed — fall back to listing-page description
@@ -60,20 +74,16 @@ export class ScraperPlugin implements JobSourcePlugin {
       }
     }
 
-    // Parse location/deadline from description if present (listing-page metadata)
-    const locMatch = description.match(/Location:\s*(.+)/i);
-    if (locMatch) location = locMatch[1].trim();
-    const dlMatch = description.match(/Deadline:\s*(.+)/i);
-    if (dlMatch) deadline = dlMatch[1].trim();
-
     return {
       title: job.title,
       company: job.company,
       link: job.link,
       description: description || 'No description available',
-      imageUrl: job.imageUrl,
+      imageUrl,
       location,
+      postedDate,
       deadline,
+      category,
       source: this.config.sourceName,
     };
   }
