@@ -77,31 +77,6 @@ export const eoiScraperConfig: ScraperSourceConfig = {
 };
 
 /**
- * Kuraimi Bank — jobs.kuraimibank.com
- * SSR site with job cards on /vacancies, full descriptions on /job/{id}.
- */
-export const kuraimiConfig: ScraperSourceConfig = {
-  sourceName: 'kuraimi',
-  getListingUrl: () => 'https://jobs.kuraimibank.com/vacancies',
-  baseUrl: 'https://jobs.kuraimibank.com',
-  selectors: {
-    jobContainer: '.single-job-items',
-    title: '.job-tittle h4',
-    link: '.job-tittle a',
-    // No company/location/deadline on listing page — detail page has them
-  },
-  idExtractor: (link) => {
-    const match = link.match(/\/job\/(\d+)/);
-    return match ? `kuraimi-${match[1]}` : `kuraimi-${link}`;
-  },
-  defaultCompany: 'بنك الكريمي',
-  detailPage: {
-    descriptionSelector: '.job-post-details',
-    // Post-details3 is the overview sidebar (location, deadline, salary) — keep it
-  },
-};
-
-/**
  * QTB Bank — jobs.qtbbank.com
  * SSR site with job cards on main page, detail pages at /detals_job?id_job={id}.
  * Listing page cards contain inline description in data attributes.

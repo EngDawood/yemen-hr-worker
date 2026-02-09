@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ScraperPlugin } from '../src/services/sources/scraper-shared/plugin';
 import { fetchAndParseHTMLJobs } from '../src/services/sources/scraper-shared/fetcher';
 import { parseHTML, extractText, extractAttr } from '../src/services/sources/scraper-shared/html-parser';
-import { kuraimiConfig, qtbConfig, yldfConfig } from '../src/services/sources/scraper-shared/configs';
+import { qtbConfig, yldfConfig } from '../src/services/sources/scraper-shared/configs';
 import type { JobItem } from '../src/types';
 
 // ============================================================================
@@ -66,20 +66,6 @@ describe('html-parser utilities', () => {
 // Fetcher Tests
 // ============================================================================
 
-const SAMPLE_LISTING_HTML = `
-<html><body>
-<div class="single-job-items">
-  <div class="job-tittle">
-    <a href="/job/10"><h4>مهندس صيانة</h4></a>
-  </div>
-</div>
-<div class="single-job-items">
-  <div class="job-tittle">
-    <a href="/job/11"><h4>خدمة عملاء</h4></a>
-  </div>
-</div>
-</body></html>`;
-
 describe('fetchAndParseHTMLJobs', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
@@ -90,48 +76,23 @@ describe('fetchAndParseHTMLJobs', () => {
   });
 
   it('should parse job cards from HTML', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(SAMPLE_LISTING_HTML, { status: 200 })
-    );
-
-    const jobs = await fetchAndParseHTMLJobs(kuraimiConfig);
-
-    expect(jobs).toHaveLength(2);
-    expect(jobs[0].id).toBe('kuraimi-10');
-    expect(jobs[0].title).toBe('مهندس صيانة');
-    expect(jobs[0].link).toBe('https://jobs.kuraimibank.com/job/10');
-    expect(jobs[0].company).toBe('بنك الكريمي');
-    expect(jobs[0].source).toBe('kuraimi');
-  });
-
-  it('should skip cards without title', async () => {
-    const html = `<div class="single-job-items">
-      <div class="job-tittle"><a href="/job/1"><h4></h4></a></div>
-    </div>
-    <div class="single-job-items">
-      <div class="job-tittle"><a href="/job/2"><h4>Valid Job</h4></a></div>
-    </div>`;
+    const qtbHtml = `<html><body>
+      <div class="col-12 col-md-6 col-lg-4 p-3">
+        <h4 class="font-3">خدمة عملاء</h4>
+        <a href="detals_job?id_job=123">View Job</a>
+      </div>
+    </body></html>`;
 
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(html, { status: 200 })
+      new Response(qtbHtml, { status: 200 })
     );
 
-    const jobs = await fetchAndParseHTMLJobs(kuraimiConfig);
+    const jobs = await fetchAndParseHTMLJobs(qtbConfig);
+
     expect(jobs).toHaveLength(1);
-    expect(jobs[0].title).toBe('Valid Job');
-  });
-
-  it('should skip cards without link', async () => {
-    const html = `<div class="single-job-items">
-      <div class="job-tittle"><h4>No Link Job</h4></div>
-    </div>`;
-
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(html, { status: 200 })
-    );
-
-    const jobs = await fetchAndParseHTMLJobs(kuraimiConfig);
-    expect(jobs).toHaveLength(0);
+    expect(jobs[0].id).toBe('qtb-123');
+    expect(jobs[0].title).toBe('خدمة عملاء');
+    expect(jobs[0].source).toBe('qtb');
   });
 
   it('should throw on HTTP error', async () => {
@@ -139,7 +100,7 @@ describe('fetchAndParseHTMLJobs', () => {
       new Response('Not Found', { status: 404 })
     );
 
-    await expect(fetchAndParseHTMLJobs(kuraimiConfig)).rejects.toThrow('Scraper fetch failed');
+    await expect(fetchAndParseHTMLJobs(qtbConfig)).rejects.toThrow('Scraper fetch failed');
   });
 
   it('should return empty array when no containers match', async () => {
@@ -147,7 +108,7 @@ describe('fetchAndParseHTMLJobs', () => {
       new Response('<html><body><p>No jobs here</p></body></html>', { status: 200 })
     );
 
-    const jobs = await fetchAndParseHTMLJobs(kuraimiConfig);
+    const jobs = await fetchAndParseHTMLJobs(qtbConfig);
     expect(jobs).toHaveLength(0);
   });
 });
@@ -166,25 +127,13 @@ describe('ScraperPlugin', () => {
   });
 
   it('should have correct name from config', () => {
-    const plugin = new ScraperPlugin(kuraimiConfig);
-    expect(plugin.name).toBe('kuraimi');
-  });
-
-  it('fetchJobs should delegate to fetchAndParseHTMLJobs', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(SAMPLE_LISTING_HTML, { status: 200 })
-    );
-
-    const plugin = new ScraperPlugin(kuraimiConfig);
-    const jobs = await plugin.fetchJobs();
-
-    expect(jobs).toHaveLength(2);
-    expect(jobs[0].source).toBe('kuraimi');
+    const plugin = new ScraperPlugin(qtbConfig);
+    expect(plugin.name).toBe('qtb');
   });
 
   it('processJob should fetch detail page when configured', async () => {
     const detailHtml = `<html><body>
-      <div class="job-post-details">
+      <div class="container">
         <p>Full job description with requirements and responsibilities.</p>
       </div>
     </body></html>`;
@@ -193,23 +142,23 @@ describe('ScraperPlugin', () => {
       new Response(detailHtml, { status: 200 })
     );
 
-    const plugin = new ScraperPlugin(kuraimiConfig);
+    const plugin = new ScraperPlugin(qtbConfig);
     const job: JobItem = {
-      id: 'kuraimi-10',
-      title: 'مهندس صيانة',
-      company: 'بنك الكريمي',
-      link: 'https://jobs.kuraimibank.com/job/10',
+      id: 'qtb-10',
+      title: 'خدمة عملاء',
+      company: 'بنك القطيبي الإسلامي',
+      link: 'https://jobs.qtbbank.com/detals_job?id_job=10',
       pubDate: '',
       imageUrl: null,
-      source: 'kuraimi',
+      source: 'qtb',
     };
 
     const processed = await plugin.processJob(job);
 
-    expect(processed.title).toBe('مهندس صيانة');
-    expect(processed.company).toBe('بنك الكريمي');
+    expect(processed.title).toBe('خدمة عملاء');
+    expect(processed.company).toBe('بنك القطيبي الإسلامي');
     expect(processed.description).toContain('Full job description');
-    expect(processed.source).toBe('kuraimi');
+    expect(processed.source).toBe('qtb');
   });
 
   it('processJob should fall back when detail page fails', async () => {
@@ -217,37 +166,37 @@ describe('ScraperPlugin', () => {
       new Response('Not Found', { status: 404 })
     );
 
-    const plugin = new ScraperPlugin(kuraimiConfig);
+    const plugin = new ScraperPlugin(qtbConfig);
     const job: JobItem = {
-      id: 'kuraimi-10',
-      title: 'مهندس صيانة',
-      company: 'بنك الكريمي',
-      link: 'https://jobs.kuraimibank.com/job/10',
+      id: 'qtb-10',
+      title: 'خدمة عملاء',
+      company: 'بنك القطيبي الإسلامي',
+      link: 'https://jobs.qtbbank.com/detals_job?id_job=10',
       pubDate: '',
       imageUrl: null,
       description: 'Location: صنعاء',
-      source: 'kuraimi',
+      source: 'qtb',
     };
 
     const processed = await plugin.processJob(job);
 
-    expect(processed.title).toBe('مهندس صيانة');
+    expect(processed.title).toBe('خدمة عملاء');
     expect(processed.location).toBe('صنعاء');
-    expect(processed.source).toBe('kuraimi');
+    expect(processed.source).toBe('qtb');
   });
 
   it('processJob should work without detail page config', async () => {
-    const configNoDetail = { ...kuraimiConfig, detailPage: undefined };
+    const configNoDetail = { ...qtbConfig, detailPage: undefined };
     const plugin = new ScraperPlugin(configNoDetail);
     const job: JobItem = {
-      id: 'kuraimi-10',
+      id: 'qtb-10',
       title: 'Test',
       company: 'Co',
       link: 'https://example.com/job/10',
       pubDate: '',
       imageUrl: null,
       description: 'Location: Aden\nDeadline: 2026-03-01',
-      source: 'kuraimi',
+      source: 'qtb',
     };
 
     const processed = await plugin.processJob(job);
@@ -288,25 +237,6 @@ describe('ScraperPlugin', () => {
     expect(processed.description).toContain('Real job content');
     expect(processed.description).not.toContain('Navigation');
     expect(processed.description).not.toContain('Footer stuff');
-  });
-});
-
-// ============================================================================
-// Kuraimi Config Tests
-// ============================================================================
-
-describe('kuraimiConfig', () => {
-  it('should extract ID from job URL', () => {
-    expect(kuraimiConfig.idExtractor('https://jobs.kuraimibank.com/job/10')).toBe('kuraimi-10');
-    expect(kuraimiConfig.idExtractor('https://jobs.kuraimibank.com/job/22')).toBe('kuraimi-22');
-  });
-
-  it('should fall back for unexpected URL format', () => {
-    expect(kuraimiConfig.idExtractor('https://example.com/other')).toBe('kuraimi-https://example.com/other');
-  });
-
-  it('should have correct listing URL', () => {
-    expect(kuraimiConfig.getListingUrl()).toBe('https://jobs.kuraimibank.com/vacancies');
   });
 });
 

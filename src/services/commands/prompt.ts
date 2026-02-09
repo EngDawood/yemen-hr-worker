@@ -3,7 +3,7 @@
  * Manages per-source AI prompt configs stored in KV.
  */
 
-import type { Env, JobSource } from '../../types';
+import type { Env } from '../../types';
 import { CONFIG_KV_KEY, getCodeDefault, getConfiguredSources } from '../ai-prompts';
 import type { AIPromptConfig } from '../ai-prompts';
 
@@ -51,7 +51,7 @@ async function handleList(env: Env): Promise<string> {
   return lines.join('\n');
 }
 
-async function handleGet(env: Env, source: JobSource): Promise<string> {
+async function handleGet(env: Env, source: string): Promise<string> {
   const codeDefault = getCodeDefault(source);
   const kvConfigs = await readKVConfigs(env);
   const kvOverride = kvConfigs[source];
@@ -147,14 +147,14 @@ export async function handlePrompt(env: Env, args: string[]): Promise<string> {
   const source = args[0];
 
   // Validate source name
-  if (!VALID_SOURCES.has(source as JobSource)) {
+  if (!VALID_SOURCES.has(source)) {
     const valid = [...VALID_SOURCES].join(', ');
     return `❌ Unknown source: ${source}\nValid sources: ${valid}`;
   }
 
   // /prompt <source> — show config
   if (args.length === 1) {
-    return handleGet(env, source as JobSource);
+    return handleGet(env, source);
   }
 
   // /prompt <source> reset — reset source

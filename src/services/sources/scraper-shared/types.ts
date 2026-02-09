@@ -1,12 +1,12 @@
-import type { Env, JobItem, JobSource, ProcessedJob } from '../../../types';
+import type { Env, JobItem, ProcessedJob } from '../../../types';
 
 /**
  * Configuration for an HTML scraper-based job source.
  * Adding a new SSR site requires only defining this config + 1 registry line.
  */
 export interface ScraperSourceConfig {
-  /** Unique source name (must match JobSource type) */
-  sourceName: JobSource;
+  /** Unique source name. Type safety enforced at registry level via satisfies. */
+  sourceName: string;
 
   /** Get the listing page URL. May use env vars. */
   getListingUrl: (env?: Env) => string;

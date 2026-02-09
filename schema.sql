@@ -10,16 +10,7 @@ CREATE TABLE IF NOT EXISTS sources (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Seed sources: 'rss' is the catch-all default for unknown sources
-INSERT OR IGNORE INTO sources (id, display_name, hashtag, type, base_url, feed_url, enabled) VALUES
-  ('rss',       'RSS',           '#RSS',          'rss',     '',                                   NULL, 1),
-  ('yemenhr',   'Yemen HR',      '#YemenHR',      'rss',     'https://yemenhr.com',                NULL, 1),
-  ('eoi',       'EOI Yemen',     '#EOI',          'api',     'https://eoi-ye.com',                 'https://eoi-ye.com/live_search/action1?type=0&title=', 1),
-  ('reliefweb', 'ReliefWeb',     '#ReliefWeb',    'rss',     'https://reliefweb.int',              'https://reliefweb.int/jobs/rss.xml?advanced-search=%28C255%29', 1),
-  ('ykbank',    'YK Bank',       '#YKBank',       'rss',     'https://yk-bank.zohorecruit.com',    'https://yk-bank.zohorecruit.com/jobs/Careers/rss', 0),
-  ('kuraimi',   'Kuraimi Bank',  '#KuraimiBank',  'scraper', 'https://jobs.kuraimibank.com',       NULL, 0),
-  ('qtb',       'QTB Bank',      '#QTBBank',      'scraper', 'https://jobs.qtbbank.com',           NULL, 0),
-  ('yldf',      'YLDF',          '#YLDF',         'scraper', 'https://erp.yldf.org',               NULL, 0);
+-- Sources are synced from registry at runtime via syncSourcesTable()
 
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,

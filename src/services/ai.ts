@@ -3,12 +3,13 @@
  * Calls Workers AI with retry logic and response parsing.
  */
 
-import type { Env, ProcessedJob, JobSource } from '../types';
+import type { Env, ProcessedJob } from '../types';
 import { delay } from '../utils/format';
 import { stripMarkdown } from '../utils/html';
 import { buildJobHeader, buildNoAIFallback, buildApplyContext } from './ai-format';
 import { VALID_CATEGORIES_AR, extractCategoryFromAIResponse, removeCategoryLine } from './ai-parse';
 import { getPromptConfig } from './ai-prompts';
+import { DEFAULT_SOURCE } from './sources/registry';
 
 // Re-export for backward compatibility (tests + other modules import from './ai')
 export { buildJobHeader, buildNoAIFallback } from './ai-format';
@@ -151,7 +152,7 @@ export async function summarizeJob(
 ): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
   const hasCategory = !!job.category;
-  const source = (job.source || 'rss') as JobSource;
+  const source = job.source || DEFAULT_SOURCE;
   const promptConfig = await getPromptConfig(source, env);
 
   // Only include apply context when source actually provides apply data
