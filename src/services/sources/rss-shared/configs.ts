@@ -39,3 +39,18 @@ export const reliefwebConfig: RSSSourceConfig = {
   },
   processJob: processReliefWebJob,
 };
+
+/**
+ * Yemen Kuwait Bank (YK Bank) configuration.
+ * Native RSS 2.0 feed from Zoho Recruit. Full description in RSS, no detail fetch needed.
+ */
+export const ykbankConfig: RSSSourceConfig = {
+  sourceName: 'ykbank',
+  getFeedUrl: () => 'https://yk-bank.zohorecruit.com/jobs/Careers/rss',
+  baseUrl: 'https://yk-bank.zohorecruit.com',
+  idExtractor: (link) => {
+    // URL: .../jobs/Careers/{ID}/{slug}?source=RSS — extract numeric ID
+    const match = link.match(/\/(\d+)\//);
+    return match ? `ykbank-${match[1]}` : link;
+  },
+};

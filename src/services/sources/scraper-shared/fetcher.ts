@@ -1,0 +1,88 @@
+/**
+ * HTML scraping logic: fetch a listing page, parse job cards via CSS selectors.
+ */
+
+import type { JobItem, JobSource } from '../../../types';
+import type { ScraperSourceConfig } from './types';
+import { parseHTML, extractText, extractAttr } from './html-parser';
+
+/**
+ * Fetch an HTML listing page and extract job items using CSS selectors.
+ */
+export async function fetchAndParseHTMLJobs(
+  config: ScraperSourceConfig
+): Promise<JobItem[]> {
+  const url = config.getListingUrl();
+  const { baseUrl, selectors, idExtractor, defaultCompany } = config;
+
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'Yemen-Jobs-Bot/1.0' },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Scraper fetch failed for ${config.sourceName}: ${response.status} ${response.statusText}`);
+  }
+
+  const html = await response.text();
+  const doc = parseHTML(html);
+  const containers = doc.querySelectorAll(selectors.jobContainer);
+
+  if (containers.length === 0) {
+    console.warn(`[${config.sourceName}] No job containers found with selector: ${selectors.jobContainer}`);
+    return [];
+  }
+
+  const jobs: JobItem[] = [];
+
+  for (const container of containers) {
+    const title = extractText(container, selectors.title);
+    if (!title) continue;
+
+    // Extract link — supports custom attribute (e.g., 'id' for YLDF cards)
+    const linkAttr = selectors.linkAttr || 'href';
+    let link: string | null = null;
+
+    if (linkAttr === 'href') {
+      link = extractAttr(container, selectors.link, 'href', baseUrl);
+    } else {
+      // Custom attribute (like 'id') — read raw value and resolve against baseUrl.
+      // querySelector can't match the container itself, so fall back to container
+      // if the selector matches the container's own attributes.
+      const el = container.querySelector(selectors.link) || container;
+      const rawValue = el?.getAttribute(linkAttr);
+      if (rawValue) {
+        const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        link = rawValue.startsWith('http') ? rawValue : `${base}/${rawValue}`;
+      }
+    }
+
+    if (!link) continue;
+
+    const id = idExtractor(link, title);
+    if (!id) continue;
+
+    const company = (selectors.company ? extractText(container, selectors.company) : null) || defaultCompany || 'Unknown Company';
+    const imageUrl = selectors.image ? extractAttr(container, selectors.image, 'src', baseUrl) : null;
+    const location = selectors.location ? extractText(container, selectors.location) : undefined;
+    const deadline = selectors.deadline ? extractText(container, selectors.deadline) : undefined;
+
+    // Build description from available listing-page metadata
+    const parts: string[] = [];
+    if (location) parts.push(`Location: ${location}`);
+    if (deadline) parts.push(`Deadline: ${deadline}`);
+
+    jobs.push({
+      id,
+      title,
+      company,
+      link,
+      pubDate: '',
+      imageUrl,
+      description: parts.join('\n') || undefined,
+      source: config.sourceName,
+    });
+  }
+
+  return jobs;
+}

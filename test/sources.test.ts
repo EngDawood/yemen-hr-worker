@@ -9,6 +9,7 @@ import { EOIPlugin } from '../src/services/sources/eoi';
 import { fetchAndParseRSSFeed } from '../src/services/sources/rss-shared/rss-parser';
 import { processYemenHRJob } from '../src/services/sources/yemenhr/processor';
 import { processReliefWebJob } from '../src/services/sources/reliefweb/processor';
+import { reliefwebConfig } from '../src/services/sources/rss-shared/configs';
 import type { JobItem } from '../src/types';
 
 // ============================================================================
@@ -16,12 +17,12 @@ import type { JobItem } from '../src/types';
 // ============================================================================
 
 describe('Plugin Registry', () => {
-  it('getAllSources should return all registered plugins', () => {
+  it('getAllSources should return all registered (active) plugins', () => {
     const sources = getAllSources();
-    expect(sources).toHaveLength(3);
+    // Only yemenhr and eoi are currently active (reliefweb + new sources disabled)
+    expect(sources).toHaveLength(2);
     expect(sources.map(s => s.name)).toContain('yemenhr');
     expect(sources.map(s => s.name)).toContain('eoi');
-    expect(sources.map(s => s.name)).toContain('reliefweb');
   });
 
   it('getSource should return correct plugin by name', () => {
@@ -32,14 +33,12 @@ describe('Plugin Registry', () => {
     const eoi = getSource('eoi');
     expect(eoi).toBeInstanceOf(EOIPlugin);
     expect(eoi.name).toBe('eoi');
-
-    const reliefweb = getSource('reliefweb');
-    expect(reliefweb).toBeInstanceOf(RSSPlugin);
-    expect(reliefweb.name).toBe('reliefweb');
   });
 
-  it('getSource should throw for unknown source', () => {
+  it('getSource should throw for disabled/unknown source', () => {
     expect(() => getSource('unknown' as any)).toThrow('Job source plugin not found: unknown');
+    // reliefweb is disabled (commented out in registry)
+    expect(() => getSource('reliefweb')).toThrow('Job source plugin not found: reliefweb');
   });
 });
 
@@ -201,8 +200,10 @@ const SAMPLE_RSS_FEED = `<?xml version="1.0" encoding="utf-8"?>
   </channel>
 </rss>`;
 
-describe('ReliefWebPlugin (via RSSPlugin)', () => {
-  const plugin = getSource('reliefweb');
+describe('ReliefWebPlugin (via RSSPlugin — currently disabled)', () => {
+  // ReliefWeb is disabled in registry but configs+processor still work.
+  // Test via direct RSSPlugin instantiation.
+  const plugin = new RSSPlugin(reliefwebConfig);
 
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());

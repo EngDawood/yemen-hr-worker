@@ -10,6 +10,10 @@ const SOURCE_HASHTAGS: Record<JobSource, string> = {
   yemenhr: '#YemenHR',
   eoi: '#EOI',
   reliefweb: '#ReliefWeb',
+  ykbank: '#YKBank',
+  kuraimi: '#KuraimiBank',
+  qtb: '#QTBBank',
+  yldf: '#YLDF',
 };
 
 /**

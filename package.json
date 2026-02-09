@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "build": "^0.1.4",
-    "fast-xml-parser": "^4.3.4"
+    "fast-xml-parser": "^4.3.4",
+    "node-html-parser": "^7.0.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250124.0",

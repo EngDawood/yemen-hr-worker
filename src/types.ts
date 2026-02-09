@@ -15,7 +15,7 @@ export interface Env {
   AI_MODEL?: string; // Workers AI model ID (default: @cf/qwen/qwen3-30b-a3b-fp8)
 }
 
-export type JobSource = 'yemenhr' | 'eoi' | 'reliefweb';
+export type JobSource = 'yemenhr' | 'eoi' | 'reliefweb' | 'ykbank' | 'kuraimi' | 'qtb' | 'yldf';
 
 export interface JobItem {
   id: string;
