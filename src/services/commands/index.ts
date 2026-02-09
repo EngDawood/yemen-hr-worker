@@ -7,54 +7,26 @@ import type { Env } from '../../types';
 import type { TelegramUpdate, ParsedCommand } from '../../types/telegram';
 import { sendTextMessage } from '../telegram';
 import { handleJobsList, handleJobDetails, handleSearch, handleClear, handleStatus } from './kv';
-import { handleTest, handleSourceList, handleSourceDebug } from './pipeline';
-import { handlePrompt } from './prompt';
+import { handleTest, handleSourceDebug } from './pipeline';
 
 const COMMANDS_HELP = `
 📋 <b>Available Commands</b>
 
-<b>Monitoring</b>
-/status - Bot status info
+/help - Show this help message
 /jobs - List recent jobs from KV (last 10)
 /job [id] - View details of a specific job
 /search [keyword] - Find jobs by title/company
-
-<b>Sources</b>
-/source - List all registered sources
-/source [name] - Fetch and show jobs from a source (live)
-
-<b>Actions</b>
+/clear [id|all] - Remove job + dedup key from KV
+/status - Bot status info
 /run - Manually trigger job processing
-/test - Test pipeline: 1 job per source (no KV writes)
-/test [source] - Test a specific source only
-/clear [id] - Remove a job + dedup key from KV
-/clear all - Wipe all KV keys (job + dedup + meta)
+/test - Test pipeline with 1 job per source (no KV writes)
 
-<b>Config</b>
-/prompt - List all AI prompt configs
-/prompt [source] - Show config for source
-/prompt [source] hint [text] - Set source hint
-/prompt [source] apply [text] - Set apply fallback
-/prompt [source] howtoapply on|off - Toggle
-/prompt [source] reset - Reset KV overrides
-/prompt reset - Reset ALL overrides
+<b>Debug Commands:</b>
+/eoi - Fetch and show EOI jobs (live)
+/yemenhr - Fetch and show Yemen HR jobs (live)
 
-<i>Preview environment only.</i>
+<i>Note: Commands only work in preview environment.</i>
 `.trim();
-
-// Telegram bot command menu — registered via /set-commands endpoint
-export const BOT_COMMANDS = [
-  { command: 'help', description: 'Show available commands' },
-  { command: 'status', description: 'Bot status info' },
-  { command: 'jobs', description: 'List recent jobs from KV' },
-  { command: 'job', description: 'View details of a specific job' },
-  { command: 'search', description: 'Find jobs by keyword' },
-  { command: 'source', description: 'List or debug job sources' },
-  { command: 'run', description: 'Trigger job processing' },
-  { command: 'test', description: 'Test pipeline (no KV writes)' },
-  { command: 'clear', description: 'Remove job from KV' },
-  { command: 'prompt', description: 'Manage AI prompt configs' },
-];
 
 /**
  * Parse a Telegram update into a command object.
@@ -133,7 +105,7 @@ export async function handleWebhook(
   }
 
   const { command, args, chatId } = parsed;
-  let response: string | null;
+  let response: string;
 
   try {
     switch (command) {
@@ -175,35 +147,31 @@ export async function handleWebhook(
         break;
 
       case 'run':
-        // await keeps the fetch handler alive — I/O wait doesn't count toward CPU limits
-        // (ctx.waitUntil gets killed after ~30s in fetch handlers, not enough for 25 jobs)
-        await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId),
-          '⏳ Processing started...');
-        try {
-          const result = await triggerProcessing();
-          response = `✅ <b>Processing Complete</b>\n\nProcessed: ${result.processed}\nPosted: ${result.posted}\nSkipped: ${result.skipped}\nFailed: ${result.failed}`;
-        } catch (error) {
-          response = `❌ Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-        }
+        // Respond immediately, process in background
+        ctx.waitUntil((async () => {
+          try {
+            const result = await triggerProcessing();
+            await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId),
+              `✅ <b>Processing Complete</b>\n\nProcessed: ${result.processed}\nPosted: ${result.posted}\nSkipped: ${result.skipped}\nFailed: ${result.failed}`);
+          } catch (error) {
+            await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId),
+              `❌ Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        })());
+        response = '⏳ Processing started... Results will be sent when complete.';
         break;
 
       case 'test':
-        // ctx.waitUntil returns HTTP 200 immediately (Telegram retries if webhook is slow)
-        // handleTest sends live progress updates per source — partial results survive 30s kill
-        ctx.waitUntil(handleTest(env, String(chatId), args[0]));
-        response = null;
+        ctx.waitUntil(handleTest(env, String(chatId)));
+        response = '🧪 Test started... 1 job from each source will be processed and posted.';
         break;
 
-      case 'source':
-        if (args.length === 0) {
-          response = await handleSourceList();
-        } else {
-          response = await handleSourceDebug(args[0], env);
-        }
+      case 'eoi':
+        response = await handleSourceDebug('eoi');
         break;
 
-      case 'prompt':
-        response = await handlePrompt(env, args);
+      case 'yemenhr':
+        response = await handleSourceDebug('yemenhr', env);
         break;
 
       default:
@@ -214,10 +182,8 @@ export async function handleWebhook(
     response = `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
 
-  // Send response to user (null = handler already sent its own messages)
-  if (response !== null) {
-    await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId), response);
-  }
+  // Send response to user
+  await sendTextMessage(env.TELEGRAM_BOT_TOKEN, String(chatId), response);
 
   return new Response('OK', { status: 200 });
 }

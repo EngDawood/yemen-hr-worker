@@ -5,7 +5,7 @@
  */
 
 import { XMLParser } from 'fast-xml-parser';
-import type { JobItem } from '../../../types';
+import type { JobItem, JobSource } from '../../../types';
 
 // ============================================================================
 // Atom feed types
@@ -66,7 +66,7 @@ type ParsedFeed = AtomFeed & RSSFeed;
 
 function parseAtomEntries(
   entries: AtomEntry[],
-  source: string,
+  source: JobSource,
   baseUrl: string,
   idExtractor: (link: string) => string
 ): JobItem[] {
@@ -155,7 +155,7 @@ function parseAtomEntries(
 
 function parseRSSItems(
   items: RSSItem[],
-  source: string,
+  source: JobSource,
   baseUrl: string,
   idExtractor: (link: string) => string
 ): JobItem[] {
@@ -220,7 +220,7 @@ function parseRSSItems(
  */
 export async function fetchAndParseRSSFeed(
   url: string,
-  source: string,
+  source: JobSource,
   baseUrl: string,
   idExtractor: (link: string) => string
 ): Promise<JobItem[]> {

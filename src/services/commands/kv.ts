@@ -10,7 +10,6 @@ import {
   deleteDedupKey,
   getPostedJobRecord,
   searchJobsInKV,
-  clearAllKV,
 } from '../storage';
 
 /**
@@ -79,8 +78,17 @@ export async function handleSearch(env: Env, keyword: string): Promise<string> {
  */
 export async function handleClear(env: Env, target: string): Promise<string> {
   if (target === 'all') {
-    const result = await clearAllKV(env);
-    return `✅ Cleared all KV keys.\n\nDeleted: ${result.jobKeys} job + ${result.dedupKeys} dedup + ${result.metaKeys} meta keys.`;
+    // Clear all job: and dedup: prefixed keys
+    const jobList = await env.POSTED_JOBS.list({ prefix: 'job:', limit: 1000 });
+    const dedupList = await env.POSTED_JOBS.list({ prefix: 'dedup:', limit: 1000 });
+
+    const deletePromises = [
+      ...jobList.keys.map(k => env.POSTED_JOBS.delete(k.name)),
+      ...dedupList.keys.map(k => env.POSTED_JOBS.delete(k.name)),
+    ];
+    await Promise.all(deletePromises);
+
+    return `✅ Cleared all KV keys.\n\nDeleted: ${jobList.keys.length} job keys + ${dedupList.keys.length} dedup keys.`;
   }
 
   // Clear single job by ID

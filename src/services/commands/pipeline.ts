@@ -2,9 +2,9 @@
  * Pipeline test/debug command handlers (/test, /eoi, /yemenhr).
  */
 
-import type { Env } from '../../types';
-import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from '../telegram';
-import { getAllSources, getSource, getSourceEntries } from '../sources/registry';
+import type { Env, JobSource } from '../../types';
+import { sendTextMessage, sendPhotoMessage } from '../telegram';
+import { getAllSources, getSource } from '../sources/registry';
 import { summarizeJob } from '../ai';
 import { formatTelegramMessage } from '../../utils/format';
 
@@ -12,139 +12,92 @@ import { formatTelegramMessage } from '../../utils/format';
  * Handle /test command - process 1 job from each source through full pipeline.
  * Uses the plugin architecture: fetch → process → summarize → format → post.
  * No KV checks, no KV writes. Pure output test.
- *
- * Sends a live-updating progress message to admin:
- * ⏳ pending → ✅ success / ⚠️ no jobs / ❌ error per source.
  */
-export async function handleTest(env: Env, adminChatId: string, sourceName?: string): Promise<void> {
-  const allPlugins = getAllSources();
+export async function handleTest(env: Env, adminChatId: string): Promise<void> {
+  const results: string[] = [];
 
-  // Filter to specific source if requested
-  if (sourceName) {
-    const validNames = allPlugins.map(p => p.name) as string[];
-    if (!validNames.includes(sourceName)) {
-      await sendTextMessage(env.TELEGRAM_BOT_TOKEN, adminChatId,
-        `❌ Unknown source: <code>${sourceName}</code>\n\nAvailable: ${validNames.map(n => `<code>${n}</code>`).join(', ')}`);
-      return;
-    }
-  }
+  try {
+    const plugins = getAllSources();
 
-  const plugins = sourceName
-    ? allPlugins.filter(p => p.name === sourceName)
-    : allPlugins;
-
-  // Track status per source: null = pending, string = result line
-  const statuses: Map<string, string | null> = new Map();
-  for (const p of plugins) statuses.set(p.name, null);
-
-  // Build progress message text from current statuses
-  const buildProgress = (header: string, footer?: string) => {
-    const lines = [`${header}\n`];
-    for (const [name, status] of statuses) {
-      lines.push(status ?? `⏳ ${name}`);
-    }
-    if (footer) lines.push(`\n${footer}`);
-    return lines.join('\n');
-  };
-
-  // Send initial progress message
-  const msgId = await sendMessageWithId(
-    env.TELEGRAM_BOT_TOKEN, adminChatId,
-    buildProgress('🧪 <b>Test started...</b> 1 job from each source will be processed and posted.')
-  );
-
-  // Helper to edit the progress message (no-op if initial send failed)
-  const updateProgress = async (header: string, footer?: string) => {
-    if (!msgId) return;
-    await editMessageText(
-      env.TELEGRAM_BOT_TOKEN, adminChatId, msgId,
-      buildProgress(header, footer)
+    // Fetch jobs from all sources in parallel
+    const fetchResults = await Promise.allSettled(
+      plugins.map(plugin =>
+        plugin.fetchJobs(env).then(jobs => ({ plugin, jobs }))
+      )
     );
-  };
 
-  const header = '🧪 <b>Testing...</b>';
+    // Process 1 job from each source
+    for (const result of fetchResults) {
+      if (result.status !== 'fulfilled') {
+        results.push(`❌ Fetch failed: ${result.reason}`);
+        continue;
+      }
 
-  // Process each source sequentially so admin sees live updates
-  for (const plugin of plugins) {
-    try {
-      const jobs = await plugin.fetchJobs(env);
-
+      const { plugin, jobs } = result.value;
       if (jobs.length === 0) {
-        statuses.set(plugin.name, `⚠️ ${plugin.name}: No jobs found`);
-        await updateProgress(header);
+        results.push(`${plugin.name}: ⚠️ No jobs found`);
         continue;
       }
 
       const job = jobs[0];
-      const processedJob = await plugin.processJob(job, env);
-      const aiResult = await summarizeJob(processedJob, env);
-      processedJob.category = aiResult.category;
+      try {
+        // Process job using plugin (clean HTML, fetch details, etc.)
+        const processedJob = await plugin.processJob(job, env);
 
-      const message = formatTelegramMessage(
-        aiResult.summary, job.link, processedJob.imageUrl,
-        env.LINKEDIN_URL, processedJob.source, processedJob.category
-      );
+        // Generate AI summary
+        const aiResult = await summarizeJob(processedJob, env);
+        processedJob.category = aiResult.category;
 
-      let success: boolean;
-      if (message.hasImage && message.imageUrl) {
-        success = await sendPhotoMessage(
-          env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
-          message.imageUrl, message.fullMessage
+        // Format and send to Telegram
+        const message = formatTelegramMessage(
+          aiResult.summary, job.link, processedJob.imageUrl,
+          env.LINKEDIN_URL, processedJob.source, processedJob.category
         );
-      } else {
-        success = await sendTextMessage(
-          env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
-          message.fullMessage
-        );
+
+        let success: boolean;
+        if (message.hasImage && message.imageUrl) {
+          success = await sendPhotoMessage(
+            env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
+            message.imageUrl, message.fullMessage
+          );
+        } else {
+          success = await sendTextMessage(
+            env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
+            message.fullMessage
+          );
+        }
+
+        results.push(`${plugin.name}: ${success ? '✅' : '❌'} "${job.title}"`);
+      } catch (error) {
+        results.push(`${plugin.name}: ❌ Error - ${error instanceof Error ? error.message : 'Unknown'}`);
       }
-
-      statuses.set(plugin.name, `${success ? '✅' : '❌'} ${plugin.name}: "${job.title}"`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Unknown';
-      statuses.set(plugin.name, `❌ ${plugin.name}: ${reason}`);
     }
 
-    await updateProgress(header);
+    // Send summary to admin
+    await sendTextMessage(env.TELEGRAM_BOT_TOKEN, adminChatId,
+      `🧪 <b>Test Complete</b>\n\n${results.join('\n')}\n\n<i>No KV writes were made.</i>`);
+  } catch (error) {
+    await sendTextMessage(env.TELEGRAM_BOT_TOKEN, adminChatId,
+      `🧪 Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
-
-  // Final update
-  await updateProgress('🧪 <b>Test Complete</b>', '<i>No KV writes were made.</i>');
 }
 
 /**
- * Handle /source with no args — list all registered sources with enabled status.
+ * Handle /eoi and /yemenhr debug commands - fetch and display jobs from a source.
+ * Uses the plugin architecture for fetching.
  */
-export async function handleSourceList(): Promise<string> {
-  const entries = getSourceEntries();
-  const lines = ['📋 <b>Registered Sources</b>\n'];
-  for (const { name, enabled } of entries) {
-    lines.push(`${enabled ? '✅' : '⏸️'} <code>${name}</code>${enabled ? '' : ' (disabled)'}`);
-  }
-  lines.push(`\nUsage: /source [name]`);
-  return lines.join('\n');
-}
-
-/**
- * Handle /source [name] debug command - fetch and display jobs from any registered source.
- */
-export async function handleSourceDebug(sourceName: string, env: Env): Promise<string> {
-  // Validate source name against registry
-  const allPlugins = getAllSources();
-  const validNames = allPlugins.map(p => p.name) as string[];
-
-  if (!validNames.includes(sourceName)) {
-    return `❌ Unknown source: <code>${sourceName}</code>\n\nAvailable: ${validNames.map(n => `<code>${n}</code>`).join(', ')}`;
-  }
-
+export async function handleSourceDebug(sourceName: JobSource, env?: Env): Promise<string> {
   try {
     const plugin = getSource(sourceName);
     const jobs = await plugin.fetchJobs(env);
 
     if (jobs.length === 0) {
-      return `📭 No jobs found from <b>${sourceName}</b>.`;
+      return `📭 No jobs found from ${sourceName}.`;
     }
 
-    const lines = [`🔍 <b>${sourceName} Jobs (Live Fetch)</b>\n`];
+    const emoji = sourceName === 'yemenhr' ? '🇾🇪' : '🌐';
+    const label = sourceName === 'yemenhr' ? 'Yemen HR' : 'EOI';
+    const lines = [`${emoji} <b>${label} Jobs (Live Fetch)</b>\n`];
     lines.push(`Total: ${jobs.length} jobs\n`);
 
     for (const job of jobs.slice(0, 10)) {

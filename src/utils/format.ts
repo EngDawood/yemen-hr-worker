@@ -1,13 +1,16 @@
-import type { TelegramMessage } from '../types';
+import type { TelegramMessage, JobSource } from '../types';
 import { stripMarkdown } from './html';
-import { getHashtags } from '../services/sources/registry';
 
 const MAX_CAPTION_LENGTH = 1024; // Telegram photo caption limit (visible text after entities parsing)
 const MAX_TEXT_LENGTH = 4096; // Telegram text message limit (visible text after entities parsing)
 const SEPARATOR = '━━━━━━━━━━━━━━━━━━━━';
-const DEFAULT_LINKEDIN_URL = 'https://www.linkedin.com/in/dawood3';
+const DEFAULT_LINKEDIN_URL = 'https://www.linkedin.com/in/eng-dawood-saleh';
 
-const SOURCE_HASHTAGS = getHashtags();
+const SOURCE_HASHTAGS: Record<JobSource, string> = {
+  yemenhr: '#YemenHR',
+  eoi: '#EOI',
+  reliefweb: '#ReliefWeb',
+};
 
 /**
  * Escape HTML special characters as required by Telegram HTML parse_mode.
@@ -83,7 +86,7 @@ export function formatTelegramMessage(
   jobLink: string,
   imageUrl: string | null,
   linkedinUrl?: string,
-  source?: string,
+  source?: JobSource,
   category?: string
 ): TelegramMessage {
   const LINKEDIN_URL = linkedinUrl || DEFAULT_LINKEDIN_URL;

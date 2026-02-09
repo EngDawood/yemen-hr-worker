@@ -1,4 +1,4 @@
-import type { Env, JobItem, ProcessedJob } from '../../types';
+import type { Env, JobItem, ProcessedJob, JobSource } from '../../types';
 
 /**
  * Plugin interface for job sources.
@@ -6,8 +6,8 @@ import type { Env, JobItem, ProcessedJob } from '../../types';
  * AI summarization is handled by the pipeline, not by plugins.
  */
 export interface JobSourcePlugin {
-  /** Source identifier (e.g., 'yemenhr', 'eoi'). Type safety enforced at registry level. */
-  readonly name: string;
+  /** Source identifier (e.g., 'yemenhr', 'eoi') */
+  readonly name: JobSource;
 
   /**
    * Fetch jobs from this source.
