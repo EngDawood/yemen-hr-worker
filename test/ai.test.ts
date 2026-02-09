@@ -179,10 +179,6 @@ describe('getCodeDefault (sync, code-only)', () => {
     expect(getCodeDefault('yemenhr').includeHowToApply).toBe(false);
   });
 
-  it('should return includeHowToApply: false for kuraimi', () => {
-    expect(getCodeDefault('kuraimi').includeHowToApply).toBe(false);
-  });
-
   it('should return includeHowToApply: false for qtb', () => {
     expect(getCodeDefault('qtb').includeHowToApply).toBe(false);
   });
@@ -205,7 +201,6 @@ describe('getCodeDefault (sync, code-only)', () => {
   });
 
   it('should have applyFallback for no-apply sources', () => {
-    expect(getCodeDefault('kuraimi').applyFallback).toContain('بنك الكريمي');
     expect(getCodeDefault('qtb').applyFallback).toContain('بنك القطيبي');
     expect(getCodeDefault('yldf').applyFallback).toContain('YLDF');
     expect(getCodeDefault('yemenhr').applyFallback).toBeDefined();
@@ -217,7 +212,6 @@ describe('getCodeDefault (sync, code-only)', () => {
   });
 
   it('should include location hints in sourceHint', () => {
-    expect(getCodeDefault('kuraimi').sourceHint).toContain('branch or city');
     expect(getCodeDefault('qtb').sourceHint).toContain('branch or city');
     expect(getCodeDefault('reliefweb').sourceHint).toContain('multiple countries');
     expect(getCodeDefault('yemenhr').sourceHint).toContain('city');
@@ -227,33 +221,33 @@ describe('getCodeDefault (sync, code-only)', () => {
 describe('getPromptConfig (async, KV merge)', () => {
   it('should return code default when KV is empty', async () => {
     const env = makeEnv();
-    const config = await getPromptConfig('kuraimi', env);
+    const config = await getPromptConfig('qtb', env);
     expect(config.includeHowToApply).toBe(false);
-    expect(config.sourceHint).toContain('Kuraimi');
+    expect(config.sourceHint).toContain('QTB Bank');
   });
 
   it('should merge KV override with code default', async () => {
     const env = makeEnv({
       'config:ai-prompts': {
-        kuraimi: { sourceHint: 'Custom hint for Kuraimi' },
+        qtb: { sourceHint: 'Custom hint for QTB' },
       },
     });
-    const config = await getPromptConfig('kuraimi', env);
+    const config = await getPromptConfig('qtb', env);
 
     // KV override
-    expect(config.sourceHint).toBe('Custom hint for Kuraimi');
+    expect(config.sourceHint).toBe('Custom hint for QTB');
     // Code default preserved for non-overridden fields
     expect(config.includeHowToApply).toBe(false);
-    expect(config.applyFallback).toContain('بنك الكريمي');
+    expect(config.applyFallback).toContain('بنك القطيبي');
   });
 
   it('should allow KV to override includeHowToApply', async () => {
     const env = makeEnv({
       'config:ai-prompts': {
-        kuraimi: { includeHowToApply: true },
+        qtb: { includeHowToApply: true },
       },
     });
-    const config = await getPromptConfig('kuraimi', env);
+    const config = await getPromptConfig('qtb', env);
     expect(config.includeHowToApply).toBe(true);
   });
 
@@ -269,7 +263,7 @@ describe('getPromptConfig (async, KV merge)', () => {
   });
 
   it('should return default for undefined source even with KV data', async () => {
-    const env = makeEnv({ 'config:ai-prompts': { kuraimi: { sourceHint: 'test' } } });
+    const env = makeEnv({ 'config:ai-prompts': { qtb: { sourceHint: 'test' } } });
     const config = await getPromptConfig(undefined, env);
     expect(config.includeHowToApply).toBe(false);
   });
@@ -279,14 +273,6 @@ describe('summarizeJob prompt assembly', () => {
   it('should NOT include apply template for yemenhr source', async () => {
     const { env, capturedPrompts } = makeCapturingEnv();
     await summarizeJob(makeJob({ source: 'yemenhr' }), env);
-
-    expect(capturedPrompts[0]).not.toContain('📧 كيفية التقديم:');
-    expect(capturedPrompts[0]).toContain('DO NOT include any how-to-apply section');
-  });
-
-  it('should NOT include apply template for kuraimi source', async () => {
-    const { env, capturedPrompts } = makeCapturingEnv();
-    await summarizeJob(makeJob({ source: 'kuraimi' }), env);
 
     expect(capturedPrompts[0]).not.toContain('📧 كيفية التقديم:');
     expect(capturedPrompts[0]).toContain('DO NOT include any how-to-apply section');
@@ -321,9 +307,9 @@ describe('summarizeJob prompt assembly', () => {
 
   it('should include source hint for configured sources', async () => {
     const { env, capturedPrompts } = makeCapturingEnv();
-    await summarizeJob(makeJob({ source: 'kuraimi' }), env);
+    await summarizeJob(makeJob({ source: 'qtb' }), env);
     expect(capturedPrompts[0]).toContain('SOURCE CONTEXT:');
-    expect(capturedPrompts[0]).toContain('Kuraimi Bank');
+    expect(capturedPrompts[0]).toContain('QTB Bank');
   });
 
   it('should use higher description limit for no-apply sources', async () => {
@@ -356,14 +342,6 @@ describe('summarizeJob prompt assembly', () => {
     expect(result.category).toBeDefined();
   });
 
-  it('should append applyFallback for no-apply sources', async () => {
-    const { env } = makeCapturingEnv();
-    const result = await summarizeJob(makeJob({ source: 'kuraimi' }), env);
-
-    expect(result.summary).toContain('📧 كيفية التقديم:');
-    expect(result.summary).toContain('بنك الكريمي');
-  });
-
   it('should append source-specific fallback for qtb', async () => {
     const { env } = makeCapturingEnv();
     const result = await summarizeJob(makeJob({ source: 'qtb' }), env);
@@ -388,10 +366,10 @@ describe('summarizeJob prompt assembly', () => {
   it('should use KV-overridden hint in prompt', async () => {
     const { env, capturedPrompts } = makeCapturingEnv({
       'config:ai-prompts': {
-        kuraimi: { sourceHint: 'CUSTOM KV HINT' },
+        qtb: { sourceHint: 'CUSTOM KV HINT' },
       },
     });
-    await summarizeJob(makeJob({ source: 'kuraimi' }), env);
+    await summarizeJob(makeJob({ source: 'qtb' }), env);
     expect(capturedPrompts[0]).toContain('CUSTOM KV HINT');
   });
 });

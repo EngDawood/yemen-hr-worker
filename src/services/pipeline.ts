@@ -7,7 +7,7 @@ import type { Env, JobItem } from '../types';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from './telegram';
 import { isJobPosted, markJobAsPosted, saveJobToDatabase, isDuplicateJob, markDedupKey } from './storage';
 import { formatTelegramMessage, delay } from '../utils/format';
-import { getEnabledSources, getSource } from './sources/registry';
+import { getEnabledSources, getSource, DEFAULT_SOURCE } from './sources/registry';
 import { summarizeJob } from './ai';
 
 // Default values (can be overridden via env vars)
@@ -149,7 +149,7 @@ export async function processJobs(env: Env): Promise<{ processed: number; posted
 
     for (const job of jobsToProcess) {
       processed++;
-      const source = job.source || 'rss';
+      const source = job.source || DEFAULT_SOURCE;
       const stats = sourceStats.get(source);
 
       // 3. Check if already posted by source-specific ID

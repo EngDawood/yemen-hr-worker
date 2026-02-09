@@ -2,7 +2,7 @@
  * Pipeline test/debug command handlers (/test, /eoi, /yemenhr).
  */
 
-import type { Env, JobSource } from '../../types';
+import type { Env } from '../../types';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from '../telegram';
 import { getAllSources, getSource, getSourceEntries } from '../sources/registry';
 import { summarizeJob } from '../ai';
@@ -137,7 +137,7 @@ export async function handleSourceDebug(sourceName: string, env: Env): Promise<s
   }
 
   try {
-    const plugin = getSource(sourceName as JobSource);
+    const plugin = getSource(sourceName);
     const jobs = await plugin.fetchJobs(env);
 
     if (jobs.length === 0) {

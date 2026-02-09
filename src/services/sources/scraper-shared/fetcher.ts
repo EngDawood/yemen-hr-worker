@@ -2,7 +2,7 @@
  * HTML scraping logic: fetch a listing page, parse job cards via CSS selectors.
  */
 
-import type { JobItem, JobSource } from '../../../types';
+import type { JobItem } from '../../../types';
 import type { ScraperSourceConfig } from './types';
 import { parseHTML, extractText, extractAttr } from './html-parser';
 

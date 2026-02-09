@@ -1,4 +1,5 @@
-import type { Env, PostedJobRecord, ProcessedJob, JobSource } from '../types';
+import type { Env, PostedJobRecord, ProcessedJob } from '../types';
+import { DEFAULT_SOURCE } from './sources/registry';
 import { normalizeJobKey } from './dedup';
 
 const TTL_30_DAYS = 30 * 24 * 60 * 60; // 30 days in seconds
@@ -91,7 +92,7 @@ export async function saveJobToDatabase(
   job: ProcessedJob,
   rawDescription: string,
   aiSummary: string,
-  source: JobSource = 'rss'
+  source: string = DEFAULT_SOURCE
 ): Promise<void> {
   try {
     // COALESCE validates source against sources table, falls back to 'yemenhr' if unknown

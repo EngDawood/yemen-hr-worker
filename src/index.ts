@@ -3,6 +3,7 @@ import type { TelegramUpdate } from './types/telegram';
 import { sendTextMessage, setMyCommands } from './services/telegram';
 import { handleWebhook, BOT_COMMANDS } from './services/commands';
 import { processJobs } from './services/pipeline';
+import { syncSourcesTable } from './services/sources/registry';
 import { clearAllKV } from './services/storage';
 import { jsonResponse } from './utils/http';
 
@@ -47,6 +48,7 @@ export default {
   ): Promise<void> {
     console.log(`Cron triggered at ${new Date().toISOString()}`);
     ctx.waitUntil(checkDeployNotification(env));
+    ctx.waitUntil(syncSourcesTable(env));
     ctx.waitUntil(processJobs(env));
   },
 
