@@ -13,6 +13,7 @@ export interface Env {
   DELAY_BETWEEN_POSTS_MS?: string;
   LINKEDIN_URL?: string;
   AI_MODEL?: string; // Workers AI model ID (default: @cf/qwen/qwen3-30b-a3b-fp8)
+  API_SECRET?: string; // Bearer token for write API endpoints (PATCH, PUT)
 }
 
 export type { JobSource } from './services/sources/registry';

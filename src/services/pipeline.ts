@@ -7,7 +7,7 @@ import type { Env, JobItem } from '../types';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from './telegram';
 import {
   isJobPosted, markJobAsPosted, isDuplicateJob, markDedupKey,
-  createRun, completeRun, saveJobOnFetch, updateJobStatus, saveJobToDatabase,
+  createRun, completeRun, saveJobOnFetch, updateJobStatus,
   getTodayRuns,
 } from './storage';
 import { formatTelegramMessage, delay } from '../utils/format';

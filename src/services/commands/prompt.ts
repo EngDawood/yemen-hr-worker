@@ -102,12 +102,12 @@ async function handleReset(env: Env, source?: string): Promise<string> {
     // Reset all — set ai_prompt_config to null for all sources
     const sources = getConfiguredSources();
     for (const s of sources) {
-      await updateSourceInDB(env, s, { ai_prompt_config: null as unknown as string });
+      await updateSourceInDB(env, s, { ai_prompt_config: null });
     }
     return '✅ All D1 prompt overrides removed. Using code defaults.';
   }
 
-  await updateSourceInDB(env, source, { ai_prompt_config: null as unknown as string });
+  await updateSourceInDB(env, source, { ai_prompt_config: null });
   return `✅ Prompt config for <b>${source}</b> reset to code default.`;
 }
 
