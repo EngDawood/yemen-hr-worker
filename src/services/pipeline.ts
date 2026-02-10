@@ -7,7 +7,7 @@ import type { Env, JobItem } from '../types';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from './telegram';
 import {
   isJobPosted, markJobAsPosted, isDuplicateJob, markDedupKey,
-  createRun, completeRun, saveJobOnFetch, updateJobStatus,
+  createRun, completeRun, saveJobOnFetch, saveSkippedJob, updateJobStatus,
   getTodayRuns,
 } from './storage';
 import { formatTelegramMessage, delay } from '../utils/format';
@@ -94,8 +94,8 @@ export async function processJobs(
 
   const sendOrUpdateAdmin = async (done: boolean) => {
     if (!env.ADMIN_CHAT_ID) return;
-    // Only notify admin if there are posted jobs or failures
-    if (posted === 0 && failed === 0 && done) return;
+    // Only notify admin when there's actual activity (posted or failed jobs)
+    if (posted === 0 && failed === 0) return;
     const text = buildSummary(sourceStats, { processed, posted, skipped, failed }, done, env.ENVIRONMENT);
     if (adminMsgId) {
       await editMessageText(env.TELEGRAM_BOT_TOKEN, env.ADMIN_CHAT_ID, adminMsgId, text);
@@ -181,6 +181,7 @@ export async function processJobs(
       const alreadyPosted = await isJobPosted(env, job.id);
       if (alreadyPosted) {
         console.log(`Job already posted: ${job.id} (${source})`);
+        await saveSkippedJob(env, job.id, job.title, job.company, 'skipped', source, runId);
         skipped++;
         if (stats) stats.skipped++;
         continue;
@@ -190,6 +191,7 @@ export async function processJobs(
       const isDuplicate = await isDuplicateJob(env, job.title, job.company);
       if (isDuplicate) {
         console.log(`Skipping duplicate job: "${job.title}" at "${job.company}" (${source})`);
+        await saveSkippedJob(env, job.id, job.title, job.company, 'duplicate', source, runId);
         // Mark the source-specific ID so we don't check again
         await markJobAsPosted(env, job.id, job.title, job.company);
         skipped++;
@@ -268,7 +270,7 @@ export async function processJobs(
         }
       } catch (error) {
         console.error(`Error processing job ${job.id}:`, error);
-        await updateJobStatus(env, job.id, 'failed');
+        try { await updateJobStatus(env, job.id, 'failed'); } catch { /* job may not exist in D1 yet */ }
         failed++;
         if (stats) stats.failed++;
         // Continue with next job

@@ -44,6 +44,29 @@ export async function saveJobOnFetch(
 }
 
 /**
+ * Archive a skipped/duplicate job with minimal data (no plugin processing needed).
+ * Uses INSERT OR IGNORE — safe to call for jobs that already exist from a previous run.
+ */
+export async function saveSkippedJob(
+  env: Env,
+  jobId: string,
+  title: string,
+  company: string | undefined,
+  status: 'skipped' | 'duplicate',
+  source: string = DEFAULT_SOURCE,
+  runId?: number
+): Promise<void> {
+  try {
+    await env.JOBS_DB.prepare(`
+      INSERT OR IGNORE INTO jobs (id, title, company, status, run_id, source)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(jobId, title, company || null, status, runId || null, source).run();
+  } catch {
+    // Silently ignore — skipped job archival is best-effort
+  }
+}
+
+/**
  * Update a job's status and optionally set AI summary, telegram message ID, and posted timestamp.
  */
 export async function updateJobStatus(

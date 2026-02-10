@@ -215,8 +215,7 @@ export async function summarizeJob(
   });
 
   const aiModel = await getAIModel(env);
-  const sourceLabel = source;
-  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, sourceLabel, aiModel);
+  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, source, aiModel);
 
   // Determine category
   let category: string;
