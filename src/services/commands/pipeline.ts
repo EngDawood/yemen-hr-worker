@@ -1,12 +1,15 @@
 /**
- * Pipeline test/debug command handlers (/test, /eoi, /yemenhr).
+ * Pipeline test/debug command handlers (/test, /source).
  */
 
 import type { Env } from '../../types';
+import type { InlineKeyboardMarkup } from '../../types/telegram';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from '../telegram';
 import { getAllSources, getSource, getSourceEntries } from '../sources/registry';
+import { getSourcesFromDB } from '../storage';
 import { summarizeJob } from '../ai';
 import { formatTelegramMessage } from '../../utils/format';
+import type { CommandResult } from './kv';
 
 /**
  * Handle /test command - process 1 job from each source through full pipeline.
@@ -113,16 +116,37 @@ export async function handleTest(env: Env, adminChatId: string, sourceName?: str
 }
 
 /**
- * Handle /source with no args — list all registered sources with enabled status.
+ * Handle /source with no args — list all sources with D1 metadata + buttons.
  */
-export async function handleSourceList(): Promise<string> {
-  const entries = getSourceEntries();
-  const lines = ['📋 <b>Registered Sources</b>\n'];
-  for (const { name, enabled } of entries) {
-    lines.push(`${enabled ? '✅' : '⏸️'} <code>${name}</code>${enabled ? '' : ' (disabled)'}`);
+export async function handleSourceList(env: Env): Promise<CommandResult> {
+  try {
+    const dbSources = await getSourcesFromDB(env);
+    const lines = ['📡 <b>Job Sources</b>\n'];
+    const buttons: Array<{ text: string; callback_data: string }>[] = [];
+    let row: Array<{ text: string; callback_data: string }> = [];
+
+    for (const s of dbSources) {
+      const icon = s.enabled ? '✅' : '⏸️';
+      lines.push(`${icon} <b>${s.display_name}</b> (<code>${s.id}</code>)`);
+      lines.push(`  ${s.type} · ${s.cron_schedule}`);
+
+      // Build 2-per-row button grid
+      row.push({ text: `${icon} ${s.id}`, callback_data: `src:${s.id}` });
+      if (row.length === 2) { buttons.push(row); row = []; }
+    }
+    if (row.length > 0) buttons.push(row);
+
+    const keyboard: InlineKeyboardMarkup = { inline_keyboard: buttons };
+    return { text: lines.join('\n'), keyboard };
+  } catch {
+    // Fallback to code registry
+    const entries = getSourceEntries();
+    const lines = ['📡 <b>Sources</b> (code registry)\n'];
+    for (const { name, enabled } of entries) {
+      lines.push(`${enabled ? '✅' : '⏸️'} <code>${name}</code>`);
+    }
+    return { text: lines.join('\n') };
   }
-  lines.push(`\nUsage: /source [name]`);
-  return lines.join('\n');
 }
 
 /**

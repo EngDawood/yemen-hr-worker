@@ -1,4 +1,5 @@
 import type { TelegramSendResult } from '../types';
+import type { InlineKeyboardMarkup } from '../types/telegram';
 
 interface TelegramResponse {
   ok: boolean;
@@ -121,6 +122,108 @@ export async function editMessageText(
   } catch (error) {
     console.error('Error editing Telegram message:', error);
     return false;
+  }
+}
+
+/**
+ * Send a text message with inline keyboard buttons.
+ */
+export async function sendMessageWithKeyboard(
+  botToken: string,
+  chatId: string,
+  text: string,
+  keyboard: InlineKeyboardMarkup
+): Promise<TelegramSendResult> {
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+          reply_markup: keyboard,
+        }),
+      }
+    );
+
+    const data: TelegramResponse = await response.json();
+    if (!data.ok) {
+      console.error('Telegram sendMessage (keyboard) error:', data.description);
+    }
+    return parseResult(data);
+  } catch (error) {
+    console.error('Error sending Telegram message with keyboard:', error);
+    return { success: false, messageId: null };
+  }
+}
+
+/**
+ * Edit an existing message's text and keyboard.
+ */
+export async function editMessageWithKeyboard(
+  botToken: string,
+  chatId: string,
+  messageId: number,
+  text: string,
+  keyboard?: InlineKeyboardMarkup
+): Promise<boolean> {
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    };
+    if (keyboard) body.reply_markup = keyboard;
+
+    const response = await fetch(
+      `https://api.telegram.org/bot${botToken}/editMessageText`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    );
+
+    const data: TelegramResponse = await response.json();
+    if (!data.ok) {
+      console.error('Telegram editMessageText (keyboard) error:', data.description);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error editing Telegram message with keyboard:', error);
+    return false;
+  }
+}
+
+/**
+ * Acknowledge a callback query (dismisses the loading spinner on button press).
+ */
+export async function answerCallbackQuery(
+  botToken: string,
+  callbackQueryId: string,
+  text?: string
+): Promise<void> {
+  try {
+    await fetch(
+      `https://api.telegram.org/bot${botToken}/answerCallbackQuery`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callback_query_id: callbackQueryId,
+          text,
+        }),
+      }
+    );
+  } catch (error) {
+    console.error('Error answering callback query:', error);
   }
 }
 
