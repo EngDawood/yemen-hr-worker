@@ -85,18 +85,19 @@ export async function handleTest(env: Env, adminChatId: string, sourceName?: str
         env.LINKEDIN_URL, processedJob.source, processedJob.category
       );
 
-      let success: boolean;
+      let sendResult;
       if (message.hasImage && message.imageUrl) {
-        success = await sendPhotoMessage(
+        sendResult = await sendPhotoMessage(
           env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
           message.imageUrl, message.fullMessage
         );
       } else {
-        success = await sendTextMessage(
+        sendResult = await sendTextMessage(
           env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
           message.fullMessage
         );
       }
+      const success = sendResult.success;
 
       statuses.set(plugin.name, `${success ? '✅' : '❌'} ${plugin.name}: "${job.title}"`);
     } catch (error) {

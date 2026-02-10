@@ -3,15 +3,16 @@
  * Controls what the AI is asked to produce for each job source,
  * preventing hallucination of contact info for sources that don't provide it.
  *
- * Two layers: code defaults (SOURCE_PROMPT_CONFIGS) + KV overrides (config:ai-prompts).
- * KV values take precedence. Manage via Telegram /prompt command or wrangler CLI.
+ * Two layers: code defaults (registry) + D1 overrides (sources.ai_prompt_config).
+ * D1 values take precedence. Manage via Telegram /prompt command or REST API.
  *
- * To add a new source: add one entry to SOURCE_PROMPT_CONFIGS.
+ * To add a new source: add one entry to the registry.
  * Unknown/missing sources get the safe DEFAULT_CONFIG (no howToApply, generic fallback).
  */
 
 import type { Env } from '../types';
 import { getAIPromptConfigs, getConfiguredSourceNames } from './sources/registry';
+import { getSourceFromDB, getSetting } from './storage';
 
 export interface AIPromptConfig {
   /** Whether the AI should output a "how to apply" section.
@@ -27,9 +28,6 @@ export interface AIPromptConfig {
    * Appended to AI output so the section isn't empty. Omit to skip the section entirely. */
   applyFallback?: string;
 }
-
-export const CONFIG_KV_KEY = 'config:ai-prompts';
-export const TEMPLATE_KV_KEY = 'config:prompt-template';
 
 // ============================================================================
 // Prompt template — code default + KV override for hot-swapping
@@ -59,13 +57,13 @@ Output ONLY this format (nothing else):
 📋 الوصف الوظيفي:
 [ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز {{descLimit}} حرف]{{applyOutputTemplate}}`;
 
-/** Get prompt template. KV override takes precedence over code default. */
+/** Get prompt template. D1 settings override takes precedence over code default. */
 export async function getPromptTemplate(env: Env): Promise<string> {
   try {
-    const kv = await env.POSTED_JOBS.get(TEMPLATE_KV_KEY);
-    if (kv) return kv;
+    const value = await getSetting(env, 'prompt-template');
+    if (value) return value;
   } catch {
-    // KV read failed — use code default silently
+    // D1 read failed — use code default silently
   }
   return DEFAULT_PROMPT_TEMPLATE;
 }
@@ -93,9 +91,9 @@ export function getConfiguredSources(): string[] {
 }
 
 /**
- * Get prompt config for a source. Merges KV overrides with code defaults.
- * KV values take precedence over code defaults.
- * Falls back to code defaults if KV read fails or key doesn't exist.
+ * Get prompt config for a source. Merges D1 overrides with code defaults.
+ * D1 sources.ai_prompt_config takes precedence over code defaults.
+ * Falls back to code defaults if D1 read fails or column is NULL.
  */
 export async function getPromptConfig(
   source: string | undefined,
@@ -108,13 +106,13 @@ export async function getPromptConfig(
   if (!source) return codeDefault;
 
   try {
-    const raw = await env.POSTED_JOBS.get(CONFIG_KV_KEY, 'json') as Record<string, Partial<AIPromptConfig>> | null;
-    if (raw && raw[source]) {
-      // KV override merges on top of code default
-      return { ...codeDefault, ...raw[source] };
+    const dbSource = await getSourceFromDB(env, source);
+    if (dbSource?.ai_prompt_config) {
+      const dbConfig = JSON.parse(dbSource.ai_prompt_config) as Partial<AIPromptConfig>;
+      return { ...codeDefault, ...dbConfig };
     }
   } catch {
-    // KV read failed — use code default silently
+    // D1 read failed — use code default silently
   }
 
   return codeDefault;

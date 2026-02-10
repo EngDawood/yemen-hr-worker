@@ -18,14 +18,14 @@ describe('sendTextMessage', () => {
     vi.unstubAllGlobals();
   });
 
-  it('should return true on success', async () => {
+  it('should return success with messageId on success', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 })
+      new Response(JSON.stringify({ ok: true, result: { message_id: 42 } }), { status: 200 })
     );
 
     const result = await sendTextMessage(BOT_TOKEN, CHAT_ID, 'Hello World');
 
-    expect(result).toBe(true);
+    expect(result).toEqual({ success: true, messageId: 42 });
     expect(fetch).toHaveBeenCalledWith(
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
       {
@@ -41,7 +41,7 @@ describe('sendTextMessage', () => {
     );
   });
 
-  it('should return false on API error', async () => {
+  it('should return failure on API error', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({ ok: false, description: 'Bad Request: chat not found' }),
@@ -51,15 +51,15 @@ describe('sendTextMessage', () => {
 
     const result = await sendTextMessage(BOT_TOKEN, CHAT_ID, 'Hello World');
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ success: false, messageId: null });
   });
 
-  it('should return false on network error', async () => {
+  it('should return failure on network error', async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error('Network error'));
 
     const result = await sendTextMessage(BOT_TOKEN, CHAT_ID, 'Hello World');
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ success: false, messageId: null });
   });
 });
 
@@ -72,7 +72,7 @@ describe('sendPhotoMessage', () => {
     vi.unstubAllGlobals();
   });
 
-  it('should return true on success', async () => {
+  it('should return success on successful photo send', async () => {
     // Mock image fetch
     vi.mocked(fetch)
       .mockResolvedValueOnce(
@@ -80,7 +80,7 @@ describe('sendPhotoMessage', () => {
       )
       // Mock Telegram API call
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 })
+        new Response(JSON.stringify({ ok: true, result: { message_id: 99 } }), { status: 200 })
       );
 
     const result = await sendPhotoMessage(
@@ -90,7 +90,7 @@ describe('sendPhotoMessage', () => {
       'Photo caption'
     );
 
-    expect(result).toBe(true);
+    expect(result).toEqual({ success: true, messageId: 99 });
     expect(fetch).toHaveBeenCalledTimes(2);
 
     // First call should be to fetch the image
@@ -112,7 +112,7 @@ describe('sendPhotoMessage', () => {
       .mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
       // Mock fallback text message
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 })
+        new Response(JSON.stringify({ ok: true, result: { message_id: 50 } }), { status: 200 })
       );
 
     const result = await sendPhotoMessage(
@@ -122,7 +122,7 @@ describe('sendPhotoMessage', () => {
       'Photo caption'
     );
 
-    expect(result).toBe(true);
+    expect(result.success).toBe(true);
     // Should have called sendTextMessage as fallback
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch).toHaveBeenLastCalledWith(
@@ -146,7 +146,7 @@ describe('sendPhotoMessage', () => {
       )
       // Mock fallback text message success
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 })
+        new Response(JSON.stringify({ ok: true, result: { message_id: 51 } }), { status: 200 })
       );
 
     const result = await sendPhotoMessage(
@@ -156,7 +156,7 @@ describe('sendPhotoMessage', () => {
       'Photo caption'
     );
 
-    expect(result).toBe(true);
+    expect(result.success).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
@@ -165,7 +165,7 @@ describe('sendPhotoMessage', () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error('Network error'))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 })
+        new Response(JSON.stringify({ ok: true, result: { message_id: 52 } }), { status: 200 })
       );
 
     const result = await sendPhotoMessage(
@@ -175,11 +175,11 @@ describe('sendPhotoMessage', () => {
       'Photo caption'
     );
 
-    expect(result).toBe(true);
+    expect(result.success).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('should return false if both photo and text fallback fail', async () => {
+  it('should return failure if both photo and text fallback fail', async () => {
     // Mock network error on image fetch
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error('Network error'))
@@ -195,6 +195,6 @@ describe('sendPhotoMessage', () => {
       'Photo caption'
     );
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ success: false, messageId: null });
   });
 });

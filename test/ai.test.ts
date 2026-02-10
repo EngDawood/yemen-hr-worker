@@ -1,6 +1,6 @@
 /**
  * Tests for AI service.
- * Tests buildJobHeader, buildNoAIFallback, per-source prompt configs, KV merge, and prompt assembly.
+ * Tests buildJobHeader, buildNoAIFallback, per-source prompt configs, D1 merge, and prompt assembly.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -23,23 +23,37 @@ function makeJob(overrides: Partial<ProcessedJob> = {}): ProcessedJob {
   };
 }
 
-// Mock KV namespace for async getPromptConfig tests
-function mockKV(data: Record<string, unknown> = {}): KVNamespace {
+/**
+ * Mock D1 database for getPromptConfig tests.
+ * Sources map: { sourceId: { ai_prompt_config: JSON string | null } }
+ */
+function mockD1(sources: Record<string, { ai_prompt_config?: string | null }> = {}): D1Database {
   return {
-    get: async (key: string, type?: string) => {
-      const val = data[key];
-      if (val === undefined) return null;
-      if (type === 'json') return val;
-      return JSON.stringify(val);
-    },
-    put: async () => {},
-    delete: async () => {},
-    list: async () => ({ keys: [], list_complete: true, cacheStatus: null }),
-    getWithMetadata: async () => ({ value: null, metadata: null, cacheStatus: null }),
-  } as unknown as KVNamespace;
+    prepare: (_sql: string) => ({
+      bind: (...params: unknown[]) => ({
+        first: async () => {
+          // Mock getSourceFromDB: SELECT * FROM sources WHERE id = ?
+          if (_sql.includes('sources') && params[0]) {
+            const id = params[0] as string;
+            if (sources[id]) {
+              return { id, ai_prompt_config: sources[id].ai_prompt_config ?? null };
+            }
+            return null;
+          }
+          // Mock getSetting: SELECT value FROM settings WHERE key = ?
+          return null;
+        },
+        all: async () => ({ results: [] }),
+        run: async () => ({ meta: { changes: 0 } }),
+      }),
+    }),
+    batch: async () => [],
+    dump: async () => new ArrayBuffer(0),
+    exec: async () => ({ count: 0, duration: 0 }),
+  } as unknown as D1Database;
 }
 
-function makeEnv(kvData: Record<string, unknown> = {}): Env {
+function makeEnv(d1Sources: Record<string, { ai_prompt_config?: string | null }> = {}): Env {
   const mockAI = {
     run: async (_model: string, params: Record<string, unknown>) => {
       return { choices: [{ message: { content: '📋 الوصف الوظيفي:\nوظيفة تقنية في شركة' } }] };
@@ -48,12 +62,12 @@ function makeEnv(kvData: Record<string, unknown> = {}): Env {
   return {
     AI: mockAI,
     AI_MODEL: '@cf/qwen/qwen3-30b-a3b-fp8',
-    POSTED_JOBS: mockKV(kvData),
+    JOBS_DB: mockD1(d1Sources),
   } as unknown as Env;
 }
 
 // Prompt-capturing env for testing prompt assembly
-function makeCapturingEnv(kvData: Record<string, unknown> = {}): { env: Env; capturedPrompts: string[] } {
+function makeCapturingEnv(d1Sources: Record<string, { ai_prompt_config?: string | null }> = {}): { env: Env; capturedPrompts: string[] } {
   const capturedPrompts: string[] = [];
   const mockAI = {
     run: async (_model: string, params: Record<string, unknown>) => {
@@ -66,7 +80,7 @@ function makeCapturingEnv(kvData: Record<string, unknown> = {}): { env: Env; cap
     env: {
       AI: mockAI,
       AI_MODEL: '@cf/qwen/qwen3-30b-a3b-fp8',
-      POSTED_JOBS: mockKV(kvData),
+      JOBS_DB: mockD1(d1Sources),
     } as unknown as Env,
     capturedPrompts,
   };
@@ -218,52 +232,50 @@ describe('getCodeDefault (sync, code-only)', () => {
   });
 });
 
-describe('getPromptConfig (async, KV merge)', () => {
-  it('should return code default when KV is empty', async () => {
+describe('getPromptConfig (async, D1 merge)', () => {
+  it('should return code default when D1 has no override', async () => {
     const env = makeEnv();
     const config = await getPromptConfig('qtb', env);
     expect(config.includeHowToApply).toBe(false);
     expect(config.sourceHint).toContain('QTB Bank');
   });
 
-  it('should merge KV override with code default', async () => {
+  it('should merge D1 override with code default', async () => {
     const env = makeEnv({
-      'config:ai-prompts': {
-        qtb: { sourceHint: 'Custom hint for QTB' },
-      },
+      qtb: { ai_prompt_config: JSON.stringify({ sourceHint: 'Custom hint for QTB' }) },
     });
     const config = await getPromptConfig('qtb', env);
 
-    // KV override
+    // D1 override
     expect(config.sourceHint).toBe('Custom hint for QTB');
     // Code default preserved for non-overridden fields
     expect(config.includeHowToApply).toBe(false);
     expect(config.applyFallback).toContain('بنك القطيبي');
   });
 
-  it('should allow KV to override includeHowToApply', async () => {
+  it('should allow D1 to override includeHowToApply', async () => {
     const env = makeEnv({
-      'config:ai-prompts': {
-        qtb: { includeHowToApply: true },
-      },
+      qtb: { ai_prompt_config: JSON.stringify({ includeHowToApply: true }) },
     });
     const config = await getPromptConfig('qtb', env);
     expect(config.includeHowToApply).toBe(true);
   });
 
-  it('should fall back to code default when KV read fails', async () => {
-    const failingKV = {
-      get: async () => { throw new Error('KV unavailable'); },
-    } as unknown as KVNamespace;
-    const env = { POSTED_JOBS: failingKV } as unknown as Env;
+  it('should fall back to code default when D1 read fails', async () => {
+    const failingDB = {
+      prepare: () => ({ bind: () => ({ first: async () => { throw new Error('D1 unavailable'); } }) }),
+    } as unknown as D1Database;
+    const env = { JOBS_DB: failingDB } as unknown as Env;
 
     const config = await getPromptConfig('eoi', env);
     expect(config.includeHowToApply).toBe(true);
     expect(config.sourceHint).toContain('EOI');
   });
 
-  it('should return default for undefined source even with KV data', async () => {
-    const env = makeEnv({ 'config:ai-prompts': { qtb: { sourceHint: 'test' } } });
+  it('should return default for undefined source even with D1 data', async () => {
+    const env = makeEnv({
+      qtb: { ai_prompt_config: JSON.stringify({ sourceHint: 'test' }) },
+    });
     const config = await getPromptConfig(undefined, env);
     expect(config.includeHowToApply).toBe(false);
   });
@@ -363,13 +375,11 @@ describe('summarizeJob prompt assembly', () => {
     expect(result.summary).not.toContain('قدّم عبر');
   });
 
-  it('should use KV-overridden hint in prompt', async () => {
+  it('should use D1-overridden hint in prompt', async () => {
     const { env, capturedPrompts } = makeCapturingEnv({
-      'config:ai-prompts': {
-        qtb: { sourceHint: 'CUSTOM KV HINT' },
-      },
+      qtb: { ai_prompt_config: JSON.stringify({ sourceHint: 'CUSTOM D1 HINT' }) },
     });
     await summarizeJob(makeJob({ source: 'qtb' }), env);
-    expect(capturedPrompts[0]).toContain('CUSTOM KV HINT');
+    expect(capturedPrompts[0]).toContain('CUSTOM D1 HINT');
   });
 });

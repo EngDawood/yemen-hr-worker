@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS sources (
   feed_url TEXT,                    -- RSS/API endpoint (null for scrapers)
   enabled INTEGER DEFAULT 0,       -- 1 = active in registry, 0 = disabled
   ai_prompt_config TEXT,            -- JSON: { includeHowToApply, sourceHint, applyFallback }
+  cron_schedule TEXT DEFAULT '0 * * * *', -- which cron expression triggers this source
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

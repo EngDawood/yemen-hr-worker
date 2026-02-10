@@ -14,6 +14,7 @@ import { RSSPlugin } from './rss-shared/plugin';
 import { reliefwebConfig } from './rss-shared/configs';
 import { ScraperPlugin } from './scraper-shared/plugin';
 import { yemenhrScraperConfig, eoiScraperConfig, qtbConfig, yldfConfig } from './scraper-shared/configs';
+import { getSourcesFromDB } from '../storage';
 
 // ============================================================================
 // Source Definition
@@ -35,6 +36,9 @@ export interface SourceDefinition {
   type: 'rss' | 'scraper' | 'api';
   baseUrl: string;
   feedUrl?: string;
+
+  // Scheduling — which cron expression triggers this source
+  cronSchedule: string;
 }
 
 // ============================================================================
@@ -50,6 +54,7 @@ const SOURCES = {
     aiPrompt: { includeHowToApply: false, applyFallback: 'راجع رابط الوظيفة أدناه' },
     type: 'rss' as const,
     baseUrl: '',
+    cronSchedule: '0 * * * *',
   },
   yemenhr: {
     plugin: new ScraperPlugin(yemenhrScraperConfig),
@@ -63,6 +68,7 @@ const SOURCES = {
     },
     type: 'scraper' as const,
     baseUrl: 'https://yemenhr.com',
+    cronSchedule: '0 * * * *', // hourly — active poster
   },
   eoi: {
     plugin: new ScraperPlugin(eoiScraperConfig),
@@ -76,6 +82,7 @@ const SOURCES = {
     type: 'api' as const,
     baseUrl: 'https://eoi-ye.com',
     feedUrl: 'https://eoi-ye.com/live_search/action1?type=0&title=',
+    cronSchedule: '0 * * * *', // hourly — active poster
   },
   reliefweb: {
     plugin: new RSSPlugin(reliefwebConfig),
@@ -89,6 +96,7 @@ const SOURCES = {
     type: 'rss' as const,
     baseUrl: 'https://reliefweb.int',
     feedUrl: 'https://reliefweb.int/jobs/rss.xml?advanced-search=%28C255%29',
+    cronSchedule: '0 */6 * * *', // every 6h — moderate frequency
   },
   ykbank: {
     // Disabled — last job posted Dec 2024, feed appears stale
@@ -98,6 +106,7 @@ const SOURCES = {
     type: 'rss' as const,
     baseUrl: 'https://yk-bank.zohorecruit.com',
     feedUrl: 'https://yk-bank.zohorecruit.com/jobs/Careers/rss',
+    cronSchedule: '0 0 * * *', // daily — rarely posts
   },
   qtb: {
     plugin: new ScraperPlugin(qtbConfig),
@@ -111,6 +120,7 @@ const SOURCES = {
     },
     type: 'scraper' as const,
     baseUrl: 'https://jobs.qtbbank.com',
+    cronSchedule: '0 0 * * *', // daily — rarely posts
   },
   yldf: {
     plugin: new ScraperPlugin(yldfConfig),
@@ -124,6 +134,7 @@ const SOURCES = {
     },
     type: 'scraper' as const,
     baseUrl: 'https://erp.yldf.org',
+    cronSchedule: '0 0 * * *', // daily — rarely posts
   },
 } satisfies Record<string, SourceDefinition>;
 
@@ -211,18 +222,62 @@ export function getSourceDefinition(name: string): SourceDefinition | undefined 
 // D1 sync — keeps sources table in sync with registry
 // ============================================================================
 
-/** Sync all registry sources to D1 sources table. Run on each scheduled trigger. */
+/**
+ * Sync code-defined sources to D1. Uses INSERT OR IGNORE to preserve D1 edits
+ * (enabled, hashtag, displayName, ai_prompt_config are editable via API).
+ * Only inserts NEW sources that don't exist in D1 yet.
+ */
 export async function syncSourcesTable(env: Env): Promise<void> {
   try {
     const stmt = env.JOBS_DB.prepare(
-      'INSERT OR REPLACE INTO sources (id, display_name, hashtag, type, base_url, feed_url, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      `INSERT OR IGNORE INTO sources (id, display_name, hashtag, type, base_url, feed_url, enabled, ai_prompt_config, cron_schedule)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     await env.JOBS_DB.batch(
       Object.entries(DEFS).map(([id, def]) =>
-        stmt.bind(id, def.displayName, def.hashtag, def.type, def.baseUrl, def.feedUrl ?? null, def.enabled ? 1 : 0)
+        stmt.bind(
+          id, def.displayName, def.hashtag, def.type, def.baseUrl,
+          def.feedUrl ?? null, def.enabled ? 1 : 0,
+          def.aiPrompt ? JSON.stringify(def.aiPrompt) : null,
+          def.cronSchedule
+        )
       )
     );
   } catch (error) {
     console.error('Failed to sync sources table:', error);
+  }
+}
+
+/**
+ * Get enabled source plugins using D1 enabled flag.
+ * If `cron` is provided, only returns sources matching that cron_schedule.
+ * If `cron` is undefined (manual/webhook), returns ALL enabled sources.
+ * Falls back to code defaults if D1 read fails.
+ */
+export async function getEnabledSourcesFromDB(env: Env, cron?: string): Promise<JobSourcePlugin[]> {
+  try {
+    const dbSources = await getSourcesFromDB(env);
+    const filtered = dbSources.filter(s =>
+      s.enabled && (!cron || s.cron_schedule === cron)
+    );
+    const enabledIds = new Set(filtered.map(s => s.id));
+    return Object.entries(DEFS)
+      .filter(([id, def]) => def.plugin && enabledIds.has(id))
+      .map(([_, def]) => def.plugin!);
+  } catch {
+    // D1 read failed — fall back to code defaults
+    return getEnabledSources();
+  }
+}
+
+/**
+ * Get hashtag map from D1 sources table (with code fallback).
+ */
+export async function getHashtagsFromDB(env: Env): Promise<Record<string, string>> {
+  try {
+    const dbSources = await getSourcesFromDB(env);
+    return Object.fromEntries(dbSources.map(s => [s.id, s.hashtag]));
+  } catch {
+    return getHashtags();
   }
 }

@@ -1,28 +1,15 @@
 /**
  * Telegram /prompt command handlers.
- * Manages per-source AI prompt configs stored in KV.
+ * Manages per-source AI prompt configs stored in D1 sources.ai_prompt_config.
  */
 
 import type { Env } from '../../types';
-import { CONFIG_KV_KEY, TEMPLATE_KV_KEY, DEFAULT_PROMPT_TEMPLATE, getCodeDefault, getConfiguredSources } from '../ai-prompts';
+import { DEFAULT_PROMPT_TEMPLATE, getCodeDefault, getConfiguredSources } from '../ai-prompts';
 import type { AIPromptConfig } from '../ai-prompts';
+import { getSourceFromDB, updateSourceInDB, getSetting, setSetting } from '../storage';
 
-type KVConfigs = Record<string, Partial<AIPromptConfig>>;
-
-async function readKVConfigs(env: Env): Promise<KVConfigs> {
-  try {
-    return (await env.POSTED_JOBS.get(CONFIG_KV_KEY, 'json') as KVConfigs) || {};
-  } catch {
-    return {};
-  }
-}
-
-async function writeKVConfigs(env: Env, configs: KVConfigs): Promise<void> {
-  await env.POSTED_JOBS.put(CONFIG_KV_KEY, JSON.stringify(configs));
-}
-
-function formatConfig(source: string, config: AIPromptConfig, hasKVOverride: boolean): string {
-  const overrideTag = hasKVOverride ? ' 🔧' : '';
+function formatConfig(source: string, config: AIPromptConfig, hasOverride: boolean): string {
+  const overrideTag = hasOverride ? ' 🔧' : '';
   const apply = config.includeHowToApply ? '✅' : '❌';
   const hint = config.sourceHint
     ? config.sourceHint.substring(0, 80) + (config.sourceHint.length > 80 ? '...' : '')
@@ -37,14 +24,16 @@ function formatConfig(source: string, config: AIPromptConfig, hasKVOverride: boo
 
 async function handleList(env: Env): Promise<string> {
   const sources = getConfiguredSources();
-  const kvConfigs = await readKVConfigs(env);
-  const lines: string[] = ['📝 <b>Prompt Configs</b>\n🔧 = KV override\n'];
+  const lines: string[] = ['📝 <b>Prompt Configs</b>\n🔧 = D1 override\n'];
 
   for (const source of sources) {
     const codeDefault = getCodeDefault(source);
-    const kvOverride = kvConfigs[source];
-    const merged = kvOverride ? { ...codeDefault, ...kvOverride } : codeDefault;
-    lines.push(formatConfig(source, merged, !!kvOverride));
+    const dbSource = await getSourceFromDB(env, source);
+    const dbConfig = dbSource?.ai_prompt_config
+      ? JSON.parse(dbSource.ai_prompt_config) as Partial<AIPromptConfig>
+      : null;
+    const merged = dbConfig ? { ...codeDefault, ...dbConfig } : codeDefault;
+    lines.push(formatConfig(source, merged, !!dbConfig));
     lines.push('');
   }
 
@@ -53,22 +42,23 @@ async function handleList(env: Env): Promise<string> {
 
 async function handleGet(env: Env, source: string): Promise<string> {
   const codeDefault = getCodeDefault(source);
-  const kvConfigs = await readKVConfigs(env);
-  const kvOverride = kvConfigs[source];
-  const merged = kvOverride ? { ...codeDefault, ...kvOverride } : codeDefault;
+  const dbSource = await getSourceFromDB(env, source);
+  const dbConfig = dbSource?.ai_prompt_config
+    ? JSON.parse(dbSource.ai_prompt_config) as Partial<AIPromptConfig>
+    : null;
+  const merged = dbConfig ? { ...codeDefault, ...dbConfig } : codeDefault;
 
   const lines: string[] = [`📝 <b>${source}</b>\n`];
 
-  // Show merged config
   lines.push(`<b>howToApply:</b> ${merged.includeHowToApply ? '✅ on' : '❌ off'}`);
   lines.push(`<b>hint:</b> ${merged.sourceHint || '(none)'}`);
   lines.push(`<b>fallback:</b> ${merged.applyFallback || '(none)'}`);
 
-  if (kvOverride) {
-    lines.push('\n🔧 <b>KV overrides:</b>');
-    if (kvOverride.includeHowToApply !== undefined) lines.push(`  howToApply: ${kvOverride.includeHowToApply}`);
-    if (kvOverride.sourceHint !== undefined) lines.push(`  hint: ${kvOverride.sourceHint}`);
-    if (kvOverride.applyFallback !== undefined) lines.push(`  fallback: ${kvOverride.applyFallback}`);
+  if (dbConfig) {
+    lines.push('\n🔧 <b>D1 overrides:</b>');
+    if (dbConfig.includeHowToApply !== undefined) lines.push(`  howToApply: ${dbConfig.includeHowToApply}`);
+    if (dbConfig.sourceHint !== undefined) lines.push(`  hint: ${dbConfig.sourceHint}`);
+    if (dbConfig.applyFallback !== undefined) lines.push(`  fallback: ${dbConfig.applyFallback}`);
   }
 
   return lines.join('\n');
@@ -80,76 +70,73 @@ async function handleSet(
   field: string,
   value: string
 ): Promise<string> {
-  const configs = await readKVConfigs(env);
-  if (!configs[source]) configs[source] = {};
+  // Read current D1 config
+  const dbSource = await getSourceFromDB(env, source);
+  const current = dbSource?.ai_prompt_config
+    ? JSON.parse(dbSource.ai_prompt_config) as Partial<AIPromptConfig>
+    : {};
 
   switch (field) {
     case 'hint':
-      configs[source].sourceHint = value;
+      current.sourceHint = value;
       break;
     case 'apply':
-      configs[source].applyFallback = value;
+      current.applyFallback = value;
       break;
     case 'howtoapply':
       if (value !== 'on' && value !== 'off') {
         return '❌ Usage: /prompt <source> howtoapply on|off';
       }
-      configs[source].includeHowToApply = value === 'on';
+      current.includeHowToApply = value === 'on';
       break;
     default:
       return `❌ Unknown field: ${field}\nValid fields: hint, apply, howtoapply`;
   }
 
-  await writeKVConfigs(env, configs);
+  await updateSourceInDB(env, source, { ai_prompt_config: JSON.stringify(current) });
   return `✅ Updated <b>${source}.${field}</b>`;
 }
 
 async function handleReset(env: Env, source?: string): Promise<string> {
   if (!source) {
-    // Reset all — delete entire KV key
-    await env.POSTED_JOBS.delete(CONFIG_KV_KEY);
-    return '✅ All KV overrides removed. Using code defaults.';
+    // Reset all — set ai_prompt_config to null for all sources
+    const sources = getConfiguredSources();
+    for (const s of sources) {
+      await updateSourceInDB(env, s, { ai_prompt_config: null as unknown as string });
+    }
+    return '✅ All D1 prompt overrides removed. Using code defaults.';
   }
 
-  const configs = await readKVConfigs(env);
-  if (!configs[source]) {
-    return `ℹ️ No KV overrides for <b>${source}</b>.`;
-  }
-
-  delete configs[source];
-
-  // Clean up: delete entire key if empty
-  if (Object.keys(configs).length === 0) {
-    await env.POSTED_JOBS.delete(CONFIG_KV_KEY);
-  } else {
-    await writeKVConfigs(env, configs);
-  }
-
-  return `✅ KV overrides for <b>${source}</b> removed. Using code default.`;
+  await updateSourceInDB(env, source, { ai_prompt_config: null as unknown as string });
+  return `✅ Prompt config for <b>${source}</b> reset to code default.`;
 }
 
 // ============================================================================
-// Template subcommands
+// Template subcommands (now uses D1 settings table)
 // ============================================================================
 
 async function handleTemplateView(env: Env): Promise<string> {
   try {
-    const kv = await env.POSTED_JOBS.get(TEMPLATE_KV_KEY);
-    if (kv) {
-      return `📝 <b>Prompt Template</b> 🔧 KV override\n\n<code>${escapeHtml(kv)}</code>`;
+    const value = await getSetting(env, 'prompt-template');
+    if (value) {
+      return `📝 <b>Prompt Template</b> 🔧 D1 override\n\n<code>${escapeHtml(value)}</code>`;
     }
-  } catch { /* KV read failed */ }
+  } catch { /* D1 read failed */ }
   return `📝 <b>Prompt Template</b> (code default)\n\n<code>${escapeHtml(DEFAULT_PROMPT_TEMPLATE)}</code>`;
 }
 
 async function handleTemplateSet(env: Env, value: string): Promise<string> {
   if (!value) return '❌ Usage: /prompt template set <template text>';
-  await env.POSTED_JOBS.put(TEMPLATE_KV_KEY, value);
-  return '✅ Prompt template updated in KV.';
+  await setSetting(env, 'prompt-template', value);
+  return '✅ Prompt template updated in D1.';
 }
 
 async function handleTemplateReset(env: Env): Promise<string> {
-  await env.POSTED_JOBS.delete(TEMPLATE_KV_KEY);
+  try {
+    await env.JOBS_DB.prepare('DELETE FROM settings WHERE key = ?').bind('prompt-template').run();
+  } catch {
+    // Ignore if already absent
+  }
   return '✅ Prompt template reset to code default.';
 }
 

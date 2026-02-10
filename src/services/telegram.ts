@@ -1,7 +1,17 @@
+import type { TelegramSendResult } from '../types';
+
 interface TelegramResponse {
   ok: boolean;
   description?: string;
   result?: { message_id?: number; [key: string]: unknown };
+}
+
+/** Extract { success, messageId } from a Telegram API response. */
+function parseResult(data: TelegramResponse): TelegramSendResult {
+  if (!data.ok) {
+    return { success: false, messageId: null };
+  }
+  return { success: true, messageId: data.result?.message_id ?? null };
 }
 
 /**
@@ -11,7 +21,7 @@ export async function sendTextMessage(
   botToken: string,
   chatId: string,
   text: string
-): Promise<boolean> {
+): Promise<TelegramSendResult> {
   try {
     const response = await fetch(
       `https://api.telegram.org/bot${botToken}/sendMessage`,
@@ -33,13 +43,12 @@ export async function sendTextMessage(
 
     if (!data.ok) {
       console.error('Telegram sendMessage error:', data.description);
-      return false;
     }
 
-    return true;
+    return parseResult(data);
   } catch (error) {
     console.error('Error sending Telegram message:', error);
-    return false;
+    return { success: false, messageId: null };
   }
 }
 
@@ -174,7 +183,7 @@ export async function sendPhotoMessage(
   chatId: string,
   imageUrl: string,
   caption: string
-): Promise<boolean> {
+): Promise<TelegramSendResult> {
   try {
     // First, try to fetch the image
     const imageResponse = await fetch(imageUrl, {
@@ -214,7 +223,7 @@ export async function sendPhotoMessage(
       return sendTextMessage(botToken, chatId, caption);
     }
 
-    return true;
+    return parseResult(data);
   } catch (error) {
     console.error('Error sending Telegram photo:', error);
     // Fallback to text-only message

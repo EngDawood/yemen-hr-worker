@@ -9,6 +9,7 @@ import { stripMarkdown } from '../utils/html';
 import { buildJobHeader, buildNoAIFallback, buildApplyContext } from './ai-format';
 import { VALID_CATEGORIES_AR, extractCategoryFromAIResponse, removeCategoryLine } from './ai-parse';
 import { getPromptConfig, getPromptTemplate, renderTemplate } from './ai-prompts';
+import { getSetting } from './storage';
 import { DEFAULT_SOURCE } from './sources/registry';
 
 // Re-export for backward compatibility (tests + other modules import from './ai')
@@ -17,6 +18,19 @@ export { buildJobHeader, buildNoAIFallback } from './ai-format';
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'; // Default Workers AI model
+
+/**
+ * Get AI model with fallback chain: D1 settings → env var → code default.
+ */
+async function getAIModel(env: Env): Promise<string> {
+  try {
+    const d1Model = await getSetting(env, 'ai-model');
+    if (d1Model) return d1Model;
+  } catch {
+    // D1 read failed — fall through to env/default
+  }
+  return env.AI_MODEL || DEFAULT_AI_MODEL;
+}
 
 /** Models that use OpenAI Responses API format (input + instructions) instead of chat completions (messages) */
 const RESPONSES_API_MODELS = ['@cf/openai/gpt-oss-120b', '@cf/openai/gpt-oss-20b'];
@@ -200,7 +214,7 @@ export async function summarizeJob(
     applyOutputTemplate,
   });
 
-  const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
+  const aiModel = await getAIModel(env);
   const sourceLabel = source;
   const rawSummary = await callWorkersAI(env.AI, prompt, job, header, sourceLabel, aiModel);
 
