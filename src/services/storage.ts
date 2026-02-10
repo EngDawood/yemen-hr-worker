@@ -95,12 +95,11 @@ export async function saveJobToDatabase(
   source: string = DEFAULT_SOURCE
 ): Promise<void> {
   try {
-    // COALESCE validates source against sources table, falls back to 'yemenhr' if unknown
     await env.JOBS_DB.prepare(`
       INSERT OR REPLACE INTO jobs
       (id, title, company, location, description_raw, description_clean,
        ai_summary_ar, image_url, source_url, posted_at, word_count, source, category)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT id FROM sources WHERE id = ?), 'rss'), ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       jobId,
       job.title,
@@ -126,43 +125,8 @@ export async function saveJobToDatabase(
 // Sources Table Functions
 // ============================================================================
 
-export interface SourceRecord {
-  id: string;
-  display_name: string;
-  hashtag: string;
-  type: string;
-  base_url: string;
-  feed_url: string | null;
-  enabled: number;
-  created_at: string;
-}
-
 /**
- * Get all sources from D1.
- */
-export async function getAllSources(env: Env): Promise<SourceRecord[]> {
-  const result = await env.JOBS_DB.prepare('SELECT * FROM sources ORDER BY enabled DESC, id').all<SourceRecord>();
-  return result.results;
-}
-
-/**
- * Get only enabled sources.
- */
-export async function getEnabledSources(env: Env): Promise<SourceRecord[]> {
-  const result = await env.JOBS_DB.prepare('SELECT * FROM sources WHERE enabled = 1 ORDER BY id').all<SourceRecord>();
-  return result.results;
-}
-
-/**
- * Get a single source by ID.
- */
-export async function getSourceById(env: Env, sourceId: string): Promise<SourceRecord | null> {
-  const result = await env.JOBS_DB.prepare('SELECT * FROM sources WHERE id = ?').bind(sourceId).first<SourceRecord>();
-  return result ?? null;
-}
-
-/**
- * Get job count per source.
+ * Get job count per source (uses D1 JOIN — not available from registry).
  */
 export async function getSourceStats(env: Env): Promise<Array<{ source: string; job_count: number }>> {
   const result = await env.JOBS_DB.prepare(`

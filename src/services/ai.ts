@@ -8,7 +8,7 @@ import { delay } from '../utils/format';
 import { stripMarkdown } from '../utils/html';
 import { buildJobHeader, buildNoAIFallback, buildApplyContext } from './ai-format';
 import { VALID_CATEGORIES_AR, extractCategoryFromAIResponse, removeCategoryLine } from './ai-parse';
-import { getPromptConfig } from './ai-prompts';
+import { getPromptConfig, getPromptTemplate, renderTemplate } from './ai-prompts';
 import { DEFAULT_SOURCE } from './sources/registry';
 
 // Re-export for backward compatibility (tests + other modules import from './ai')
@@ -187,28 +187,18 @@ export async function summarizeJob(
     ? ''
     : '\n- DO NOT include any how-to-apply section, contact information, emails, phone numbers, or application links';
 
-  const prompt = `Translate and summarize this job posting to Arabic.
-${sourceHintSection}
-Job Description:
-${job.description}${applyContext}
-
-CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
-- Description section: MAXIMUM ${descLimit} characters (count carefully!)${applyLimitLine}
-- Total output must be under ${totalLimit} characters to fit Telegram caption limit
-
-CRITICAL RULES:
-- DO NOT include any introduction or preamble
-- Respond ONLY in Arabic
-- BE EXTREMELY CONCISE - use shortest possible wording
-- NO markdown formatting (no **, no _, no []())
-- Use plain text only
-- PRESERVE all URLs, email addresses, and phone numbers EXACTLY as-is (do not translate them)
-- Count characters carefully and stay under limits${noApplyRule}
-
-Output ONLY this format (nothing else):
-${categorySection}
-📋 الوصف الوظيفي:
-[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز ${descLimit} حرف]${applyOutputTemplate}`;
+  const template = await getPromptTemplate(env);
+  const prompt = renderTemplate(template, {
+    sourceHint: sourceHintSection,
+    description: job.description,
+    applyContext,
+    descLimit: String(descLimit),
+    totalLimit: String(totalLimit),
+    applyLimitLine,
+    noApplyRule,
+    categorySection,
+    applyOutputTemplate,
+  });
 
   const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
   const sourceLabel = source;

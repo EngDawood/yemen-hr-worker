@@ -214,11 +214,14 @@ export function getSourceDefinition(name: string): SourceDefinition | undefined 
 /** Sync all registry sources to D1 sources table. Run on each scheduled trigger. */
 export async function syncSourcesTable(env: Env): Promise<void> {
   try {
-    for (const [id, def] of Object.entries(DEFS)) {
-      await env.JOBS_DB.prepare(
-        'INSERT OR REPLACE INTO sources (id, display_name, hashtag, type, base_url, feed_url, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).bind(id, def.displayName, def.hashtag, def.type, def.baseUrl, def.feedUrl ?? null, def.enabled ? 1 : 0).run();
-    }
+    const stmt = env.JOBS_DB.prepare(
+      'INSERT OR REPLACE INTO sources (id, display_name, hashtag, type, base_url, feed_url, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    await env.JOBS_DB.batch(
+      Object.entries(DEFS).map(([id, def]) =>
+        stmt.bind(id, def.displayName, def.hashtag, def.type, def.baseUrl, def.feedUrl ?? null, def.enabled ? 1 : 0)
+      )
+    );
   } catch (error) {
     console.error('Failed to sync sources table:', error);
   }

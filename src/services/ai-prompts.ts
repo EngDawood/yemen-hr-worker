@@ -29,6 +29,51 @@ export interface AIPromptConfig {
 }
 
 export const CONFIG_KV_KEY = 'config:ai-prompts';
+export const TEMPLATE_KV_KEY = 'config:prompt-template';
+
+// ============================================================================
+// Prompt template — code default + KV override for hot-swapping
+// ============================================================================
+
+/** Default prompt template with {{placeholder}} variables. Override via KV. */
+export const DEFAULT_PROMPT_TEMPLATE = `Translate and summarize this job posting to Arabic.
+{{sourceHint}}
+Job Description:
+{{description}}{{applyContext}}
+
+CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
+- Description section: MAXIMUM {{descLimit}} characters (count carefully!){{applyLimitLine}}
+- Total output must be under {{totalLimit}} characters to fit Telegram caption limit
+
+CRITICAL RULES:
+- DO NOT include any introduction or preamble
+- Respond ONLY in Arabic
+- BE EXTREMELY CONCISE - use shortest possible wording
+- NO markdown formatting (no **, no _, no []())
+- Use plain text only
+- PRESERVE all URLs, email addresses, and phone numbers EXACTLY as-is (do not translate them)
+- Count characters carefully and stay under limits{{noApplyRule}}
+
+Output ONLY this format (nothing else):
+{{categorySection}}
+📋 الوصف الوظيفي:
+[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز {{descLimit}} حرف]{{applyOutputTemplate}}`;
+
+/** Get prompt template. KV override takes precedence over code default. */
+export async function getPromptTemplate(env: Env): Promise<string> {
+  try {
+    const kv = await env.POSTED_JOBS.get(TEMPLATE_KV_KEY);
+    if (kv) return kv;
+  } catch {
+    // KV read failed — use code default silently
+  }
+  return DEFAULT_PROMPT_TEMPLATE;
+}
+
+/** Render a prompt template by replacing {{placeholders}} with values. */
+export function renderTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');
+}
 
 // Conservative default: no how-to-apply, generic fallback
 const DEFAULT_CONFIG: AIPromptConfig = {

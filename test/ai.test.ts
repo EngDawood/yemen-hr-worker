@@ -80,8 +80,8 @@ describe('buildJobHeader', () => {
     expect(header).toContain('Software Engineer');
     expect(header).toContain('Tech Corp');
     expect(header).toContain('Sana\'a');
-    expect(header).toContain('15 Jan, 2026');
-    expect(header).toContain('30 Jan, 2026');
+    expect(header).toContain('15 يناير 2026');
+    expect(header).toContain('30 يناير 2026');
   });
 
   it('should show غير محدد for missing fields', () => {

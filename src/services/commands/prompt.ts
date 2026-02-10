@@ -4,7 +4,7 @@
  */
 
 import type { Env } from '../../types';
-import { CONFIG_KV_KEY, getCodeDefault, getConfiguredSources } from '../ai-prompts';
+import { CONFIG_KV_KEY, TEMPLATE_KV_KEY, DEFAULT_PROMPT_TEMPLATE, getCodeDefault, getConfiguredSources } from '../ai-prompts';
 import type { AIPromptConfig } from '../ai-prompts';
 
 type KVConfigs = Record<string, Partial<AIPromptConfig>>;
@@ -128,6 +128,39 @@ async function handleReset(env: Env, source?: string): Promise<string> {
   return `✅ KV overrides for <b>${source}</b> removed. Using code default.`;
 }
 
+// ============================================================================
+// Template subcommands
+// ============================================================================
+
+async function handleTemplateView(env: Env): Promise<string> {
+  try {
+    const kv = await env.POSTED_JOBS.get(TEMPLATE_KV_KEY);
+    if (kv) {
+      return `📝 <b>Prompt Template</b> 🔧 KV override\n\n<code>${escapeHtml(kv)}</code>`;
+    }
+  } catch { /* KV read failed */ }
+  return `📝 <b>Prompt Template</b> (code default)\n\n<code>${escapeHtml(DEFAULT_PROMPT_TEMPLATE)}</code>`;
+}
+
+async function handleTemplateSet(env: Env, value: string): Promise<string> {
+  if (!value) return '❌ Usage: /prompt template set <template text>';
+  await env.POSTED_JOBS.put(TEMPLATE_KV_KEY, value);
+  return '✅ Prompt template updated in KV.';
+}
+
+async function handleTemplateReset(env: Env): Promise<string> {
+  await env.POSTED_JOBS.delete(TEMPLATE_KV_KEY);
+  return '✅ Prompt template reset to code default.';
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ============================================================================
+// Main dispatcher
+// ============================================================================
+
 const VALID_SOURCES = new Set(getConfiguredSources());
 
 /**
@@ -144,12 +177,20 @@ export async function handlePrompt(env: Env, args: string[]): Promise<string> {
     return handleReset(env);
   }
 
+  // /prompt template [set|reset]
+  if (args[0] === 'template') {
+    if (args.length === 1) return handleTemplateView(env);
+    if (args[1] === 'reset') return handleTemplateReset(env);
+    if (args[1] === 'set') return handleTemplateSet(env, args.slice(2).join(' '));
+    return '❌ Usage: /prompt template [set <text>|reset]';
+  }
+
   const source = args[0];
 
   // Validate source name
   if (!VALID_SOURCES.has(source)) {
     const valid = [...VALID_SOURCES].join(', ');
-    return `❌ Unknown source: ${source}\nValid sources: ${valid}`;
+    return `❌ Unknown source: ${source}\nValid sources: ${valid}, template`;
   }
 
   // /prompt <source> — show config
