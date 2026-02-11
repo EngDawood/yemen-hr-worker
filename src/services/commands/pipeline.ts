@@ -6,7 +6,7 @@ import type { Env } from '../../types';
 import type { InlineKeyboardMarkup } from '../../types/telegram';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from '../telegram';
 import { getAllSources, getEnabledSources, getSource, getSourceEntries } from '../sources/registry';
-import { getSourcesFromDB } from '../storage';
+import { getSourcesFromDB, updateSourceInDB } from '../storage';
 import { summarizeJob } from '../ai';
 import { formatTelegramMessage } from '../../utils/format';
 import type { CommandResult } from './kv';
@@ -130,8 +130,9 @@ export async function handleSourceList(env: Env): Promise<CommandResult> {
       lines.push(`${icon} <b>${s.display_name}</b> (<code>${s.id}</code>)`);
       lines.push(`  ${s.type} · ${s.cron_schedule}`);
 
-      // Build 2-per-row button grid
-      row.push({ text: `${icon} ${s.id}`, callback_data: `src:${s.id}` });
+      // Debug button + toggle button per source
+      const toggleLabel = s.enabled ? `⏸️ ${s.id}` : `▶️ ${s.id}`;
+      row.push({ text: toggleLabel, callback_data: `src:toggle:${s.id}` });
       if (row.length === 2) { buttons.push(row); row = []; }
     }
     if (row.length > 0) buttons.push(row);
@@ -187,4 +188,26 @@ export async function handleSourceDebug(sourceName: string, env: Env): Promise<s
   } catch (error) {
     return `❌ Failed to fetch ${sourceName} jobs: ${error instanceof Error ? error.message : 'Unknown error'}`;
   }
+}
+
+/**
+ * Handle /source enable|disable <name> — toggle source enabled state in D1.
+ */
+export async function handleSourceToggle(env: Env, action: 'enable' | 'disable', sourceName: string): Promise<string> {
+  const allPlugins = getAllSources();
+  const validNames = allPlugins.map(p => p.name) as string[];
+
+  if (!validNames.includes(sourceName)) {
+    return `❌ Unknown source: <code>${sourceName}</code>\n\nAvailable: ${validNames.map(n => `<code>${n}</code>`).join(', ')}`;
+  }
+
+  const enabled = action === 'enable' ? 1 : 0;
+  const updated = await updateSourceInDB(env, sourceName, { enabled });
+
+  if (!updated) {
+    return `❌ Source <code>${sourceName}</code> not found in D1.`;
+  }
+
+  const icon = action === 'enable' ? '✅' : '⏸️';
+  return `${icon} Source <code>${sourceName}</code> ${action}d.\n\n<i>Takes effect on next cron run.</i>`;
 }

@@ -62,9 +62,8 @@ const SOURCES = {
     hashtag: '#YemenHR',
     displayName: 'Yemen HR',
     aiPrompt: {
-      includeHowToApply: false,
-      applyFallback: 'راجع رابط الوظيفة أدناه',
-      sourceHint: 'This job is from YemenHR.com, a Yemeni job board. Jobs are in Yemen — location should specify the city. No application contact info is extracted — do NOT invent any.',
+      includeHowToApply: true,
+      sourceHint: 'This job is from YemenHR.com, a Yemeni job board. Jobs are in Yemen — location should specify the city. If application instructions are found in the description, preserve them exactly. If none are found, write: راجع رابط الوظيفة أدناه',
     },
     type: 'scraper' as const,
     baseUrl: 'https://yemenhr.com',
