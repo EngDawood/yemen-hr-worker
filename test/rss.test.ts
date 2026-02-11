@@ -210,11 +210,12 @@ describe('fetchRSSFeed', () => {
 
     await fetchRSSFeed('https://example.com/feed');
 
-    expect(fetch).toHaveBeenCalledWith('https://example.com/feed', {
+    expect(fetch).toHaveBeenCalledWith('https://example.com/feed', expect.objectContaining({
       headers: {
         'User-Agent': 'Yemen-HR-Bot/1.0',
       },
-    });
+      signal: expect.any(AbortSignal),
+    }));
   });
 });
 

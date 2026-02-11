@@ -145,3 +145,5 @@ Different models have different trade-offs:
 - Response time (should be < 5s)
 - Error rate (AI failures)
 - Token usage (check Workers AI dashboard)
+
+

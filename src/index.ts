@@ -1,9 +1,11 @@
 import type { Env } from './types';
 import type { TelegramUpdate } from './types/telegram';
-import { sendTextMessage } from './services/telegram';
-import { handleWebhook } from './services/commands';
-import { processJobs } from './services/pipeline';
+import { sendTextMessage, setMyCommands } from './services/telegram';
+import { handleWebhook, BOT_COMMANDS } from './services/commands';
+import { processJobs, sendDailySummary } from './services/pipeline';
+import { syncSourcesTable } from './services/sources/registry';
 import { jsonResponse } from './utils/http';
+import { handleApiRoute } from './api/routes';
 
 const DEPLOY_VERSION_KEY = 'meta:deployed_version';
 
@@ -44,9 +46,19 @@ export default {
     env: Env,
     ctx: ExecutionContext
   ): Promise<void> {
-    console.log(`Cron triggered at ${new Date().toISOString()}`);
+    const cron = (event as unknown as { cron: string }).cron;
+    console.log(`Cron triggered: ${cron} at ${new Date().toISOString()}`);
     ctx.waitUntil(checkDeployNotification(env));
-    ctx.waitUntil(processJobs(env));
+    ctx.waitUntil(syncSourcesTable(env));
+
+    // Daily summary cron — sends end-of-day digest instead of processing jobs
+    if (cron === '0 23 * * *') {
+      ctx.waitUntil(sendDailySummary(env));
+      return;
+    }
+
+    // All other crons — process jobs for matching sources
+    ctx.waitUntil(processJobs(env, 'cron', cron));
   },
 
   /**
@@ -66,7 +78,7 @@ export default {
     if (url.pathname === '/webhook' && request.method === 'POST') {
       try {
         const update = await request.json() as TelegramUpdate;
-        return await handleWebhook(update, env, ctx, () => processJobs(env));
+        return await handleWebhook(update, env, ctx, () => processJobs(env, 'webhook'));
       } catch (error) {
         console.error('Webhook error:', error);
         return new Response('Bad Request', { status: 400 });
@@ -76,18 +88,22 @@ export default {
     // Manual trigger endpoint — await processing so the worker stays alive
     // (ctx.waitUntil on fetch handlers gets killed after ~30s, not enough for 25 jobs)
     if (url.pathname === '/__scheduled') {
-      const result = await processJobs(env);
-      return jsonResponse({ status: 'complete', ...result, timestamp: new Date().toISOString() });
+      const cron = url.searchParams.get('cron') || undefined;
+
+      // Manual daily summary trigger
+      if (cron === '0 23 * * *') {
+        await sendDailySummary(env);
+        return jsonResponse({ status: 'complete', action: 'daily_summary', timestamp: new Date().toISOString() });
+      }
+
+      const result = await processJobs(env, 'manual', cron);
+      return jsonResponse({ status: 'complete', cron: cron || 'all', ...result, timestamp: new Date().toISOString() });
     }
 
-    // Clear KV cache (preview only)
-    if (url.pathname === '/clear-kv' && env.ENVIRONMENT === 'preview') {
-      const jobList = await env.POSTED_JOBS.list({ prefix: 'job:', limit: 1000 });
-      const dedupList = await env.POSTED_JOBS.list({ prefix: 'dedup:', limit: 1000 });
-      const metaList = await env.POSTED_JOBS.list({ prefix: 'meta:', limit: 100 });
-      const allKeys = [...jobList.keys, ...dedupList.keys, ...metaList.keys];
-      await Promise.all(allKeys.map(k => env.POSTED_JOBS.delete(k.name)));
-      return jsonResponse({ cleared: allKeys.length, keys: allKeys.map(k => k.name) });
+    // Register bot command menu with Telegram (one-time setup)
+    if (url.pathname === '/set-commands') {
+      const ok = await setMyCommands(env.TELEGRAM_BOT_TOKEN, BOT_COMMANDS, env.ADMIN_CHAT_ID);
+      return jsonResponse({ ok, commands: BOT_COMMANDS.length });
     }
 
     // Health check / status
@@ -95,24 +111,29 @@ export default {
       return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
     }
 
-    // Export jobs data for ML training
-    if (url.pathname === '/api/jobs') {
-      const { results } = await env.JOBS_DB.prepare(
-        'SELECT * FROM jobs ORDER BY posted_at DESC'
-      ).all();
-      return jsonResponse(results);
+    // REST API routes (/api/*)
+    if (url.pathname.startsWith('/api/')) {
+      const apiResponse = await handleApiRoute(request, url, env);
+      if (apiResponse) return apiResponse;
     }
 
     // Default response
     return jsonResponse({
       name: 'Yemen Jobs Bot',
       description: 'Monitors Yemen HR, EOI Yemen, and ReliefWeb for new jobs and posts to Telegram',
-      sources: ['Yemen HR (via RSS Bridge)', 'EOI Yemen (eoi-ye.com)', 'ReliefWeb (reliefweb.int)'],
       endpoints: {
         '/__scheduled': 'Manually trigger job processing',
         '/health': 'Health check',
-        '/api/jobs': 'Export all jobs data (JSON)',
+        '/api/jobs': 'List jobs (paginated, filterable)',
+        '/api/jobs/:id': 'Get single job',
+        '/api/sources': 'List sources with job counts',
+        '/api/sources/:id': 'Get/update source (GET/PATCH)',
+        '/api/runs': 'Run history (paginated)',
+        '/api/runs/:id': 'Get single run',
+        '/api/stats': 'Dashboard statistics',
+        '/api/settings/:key': 'Get/update settings (GET/PUT)',
         '/webhook': 'Telegram webhook for admin commands (POST)',
+        '/set-commands': 'Register bot command menu',
       },
     });
   },

@@ -8,6 +8,9 @@ import { delay } from '../utils/format';
 import { stripMarkdown } from '../utils/html';
 import { buildJobHeader, buildNoAIFallback, buildApplyContext } from './ai-format';
 import { VALID_CATEGORIES_AR, extractCategoryFromAIResponse, removeCategoryLine } from './ai-parse';
+import { getPromptConfig, getPromptTemplate, renderTemplate } from './ai-prompts';
+import { getSetting } from './storage';
+import { DEFAULT_SOURCE } from './sources/registry';
 
 // Re-export for backward compatibility (tests + other modules import from './ai')
 export { buildJobHeader, buildNoAIFallback } from './ai-format';
@@ -15,6 +18,19 @@ export { buildJobHeader, buildNoAIFallback } from './ai-format';
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'; // Default Workers AI model
+
+/**
+ * Get AI model with fallback chain: D1 settings → env var → code default.
+ */
+async function getAIModel(env: Env): Promise<string> {
+  try {
+    const d1Model = await getSetting(env, 'ai-model');
+    if (d1Model) return d1Model;
+  } catch {
+    // D1 read failed — fall through to env/default
+  }
+  return env.AI_MODEL || DEFAULT_AI_MODEL;
+}
 
 /** Models that use OpenAI Responses API format (input + instructions) instead of chat completions (messages) */
 const RESPONSES_API_MODELS = ['@cf/openai/gpt-oss-120b', '@cf/openai/gpt-oss-20b'];
@@ -140,9 +156,9 @@ async function callWorkersAI(
  * Translates and summarizes a job posting using Cloudflare Workers AI.
  * Returns both the summary text and an Arabic category label.
  *
- * Handles both source types:
- * - If job.category is already set (e.g., EOI), uses that directly
- * - If not, asks AI to classify the job into a category
+ * Uses per-source prompt config to control output sections:
+ * - Sources with howToApply data (eoi, reliefweb): include apply section
+ * - Sources without: omit apply section entirely to prevent hallucination
  */
 export async function summarizeJob(
   job: ProcessedJob,
@@ -150,7 +166,11 @@ export async function summarizeJob(
 ): Promise<AISummaryResult> {
   const header = buildJobHeader(job);
   const hasCategory = !!job.category;
-  const applyContext = buildApplyContext(job);
+  const source = job.source || DEFAULT_SOURCE;
+  const promptConfig = await getPromptConfig(source, env);
+
+  // Only include apply context when source actually provides apply data
+  const applyContext = promptConfig.includeHowToApply ? buildApplyContext(job) : '';
 
   // Build category instruction for AI
   const categoryList = VALID_CATEGORIES_AR.join('، ');
@@ -158,39 +178,44 @@ export async function summarizeJob(
     ? '' // Category already known, don't ask AI to classify
     : `\n🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]\n`;
 
-  const prompt = `Translate and summarize this job posting to Arabic.
+  // Source hint gives AI context about the data shape
+  const sourceHintSection = promptConfig.sourceHint
+    ? `\nSOURCE CONTEXT: ${promptConfig.sourceHint}\n`
+    : '';
 
-Job Description:
-${job.description}${applyContext}
+  // Conditional apply output template
+  const applyOutputTemplate = promptConfig.includeHowToApply
+    ? `\n\n━━━━━━━━━━━━━━━━━━━━\n\n📧 كيفية التقديم:\n[معلومات التقديم فقط - لا تتجاوز 120 حرف:]\n📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`
+    : '';
 
-CRITICAL LENGTH LIMITS - MUST NOT EXCEED:
-- Description section: MAXIMUM 250 characters (count carefully!)
-- How to apply section: MAXIMUM 120 characters total
-- Total output must be under 400 characters to fit Telegram caption limit
+  // Without apply section, description gets more character budget
+  const descLimit = promptConfig.includeHowToApply ? 250 : 350;
+  const totalLimit = promptConfig.includeHowToApply ? 400 : 380;
 
-CRITICAL RULES:
-- DO NOT include any introduction or preamble
-- Respond ONLY in Arabic
-- BE EXTREMELY CONCISE - use shortest possible wording
-- NO markdown formatting (no **, no _, no []())
-- Use plain text only
-- PRESERVE all URLs, email addresses, and phone numbers EXACTLY as-is (do not translate them)
-- Count characters carefully and stay under limits
+  const applyLimitLine = promptConfig.includeHowToApply
+    ? '\n- How to apply section: MAXIMUM 120 characters total'
+    : '';
 
-Output ONLY this format (nothing else):
-${categorySection}
-📋 الوصف الوظيفي:
-[ترجمة مختصرة جداً للوظيفة في 1-2 جملة قصيرة فقط - لا تتجاوز 250 حرف]
+  // Anti-hallucination rule for sources without apply data
+  const noApplyRule = promptConfig.includeHowToApply
+    ? ''
+    : '\n- DO NOT include any how-to-apply section, contact information, emails, phone numbers, or application links';
 
-━━━━━━━━━━━━━━━━━━━━
+  const template = await getPromptTemplate(env);
+  const prompt = renderTemplate(template, {
+    sourceHint: sourceHintSection,
+    description: job.description,
+    applyContext,
+    descLimit: String(descLimit),
+    totalLimit: String(totalLimit),
+    applyLimitLine,
+    noApplyRule,
+    categorySection,
+    applyOutputTemplate,
+  });
 
-📧 كيفية التقديم:
-[معلومات التقديم فقط - لا تتجاوز 120 حرف:]
-📩 [إيميل] 🔗 [رابط] 📱 [واتساب]`;
-
-  const aiModel = env.AI_MODEL || DEFAULT_AI_MODEL;
-  const sourceLabel = job.source || 'unknown';
-  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, sourceLabel, aiModel);
+  const aiModel = await getAIModel(env);
+  const rawSummary = await callWorkersAI(env.AI, prompt, job, header, source, aiModel);
 
   // Determine category
   let category: string;
@@ -200,7 +225,12 @@ ${categorySection}
     category = extractCategoryFromAIResponse(rawSummary);
   }
 
-  const summary = removeCategoryLine(rawSummary);
+  let summary = removeCategoryLine(rawSummary);
+
+  // Append static fallback apply section for sources without AI-generated apply data
+  if (!promptConfig.includeHowToApply && promptConfig.applyFallback) {
+    summary += `\n\n━━━━━━━━━━━━━━━━━━━━\n\n📧 كيفية التقديم:\n${promptConfig.applyFallback}`;
+  }
 
   return { summary, category };
 }

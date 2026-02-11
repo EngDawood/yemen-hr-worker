@@ -5,10 +5,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getAllSources, getSource } from '../src/services/sources/registry';
 import { RSSPlugin } from '../src/services/sources/rss-shared/plugin';
-import { EOIPlugin } from '../src/services/sources/eoi';
+import { ScraperPlugin } from '../src/services/sources/scraper-shared/plugin';
 import { fetchAndParseRSSFeed } from '../src/services/sources/rss-shared/rss-parser';
 import { processYemenHRJob } from '../src/services/sources/yemenhr/processor';
 import { processReliefWebJob } from '../src/services/sources/reliefweb/processor';
+import { reliefwebConfig } from '../src/services/sources/rss-shared/configs';
 import type { JobItem } from '../src/types';
 
 // ============================================================================
@@ -16,21 +17,24 @@ import type { JobItem } from '../src/types';
 // ============================================================================
 
 describe('Plugin Registry', () => {
-  it('getAllSources should return all registered plugins', () => {
+  it('getAllSources should return all registered (active) plugins', () => {
     const sources = getAllSources();
-    expect(sources).toHaveLength(3);
-    expect(sources.map(s => s.name)).toContain('yemenhr');
-    expect(sources.map(s => s.name)).toContain('eoi');
-    expect(sources.map(s => s.name)).toContain('reliefweb');
+    expect(sources).toHaveLength(5); // ykbank + kuraimi removed
+    const names = sources.map(s => s.name);
+    expect(names).toContain('yemenhr');
+    expect(names).toContain('eoi');
+    expect(names).toContain('reliefweb');
+    expect(names).toContain('qtb');
+    expect(names).toContain('yldf');
   });
 
   it('getSource should return correct plugin by name', () => {
     const yemenhr = getSource('yemenhr');
-    expect(yemenhr).toBeInstanceOf(RSSPlugin);
+    expect(yemenhr).toBeInstanceOf(ScraperPlugin);
     expect(yemenhr.name).toBe('yemenhr');
 
     const eoi = getSource('eoi');
-    expect(eoi).toBeInstanceOf(EOIPlugin);
+    expect(eoi).toBeInstanceOf(ScraperPlugin);
     expect(eoi.name).toBe('eoi');
 
     const reliefweb = getSource('reliefweb');
@@ -44,7 +48,134 @@ describe('Plugin Registry', () => {
 });
 
 // ============================================================================
-// Yemen HR Plugin Tests
+// Yemen HR Plugin Tests (via ScraperPlugin)
+// ============================================================================
+
+const SAMPLE_YEMENHR_HTML = `
+<html><body>
+<table>
+<tbody>
+  <tr class="hover:bg-blue-50/50">
+    <td>08 Feb, 26</td>
+    <td>
+      <img src="/storage/logos/ACTED.jpg" alt="ACTED">
+      <a href="#" class="hover:text-yemenhr-yellow">ACTED</a>
+    </td>
+    <td>
+      <a href="https://yemenhr.com/jobs/project-manager-acted-sanaa-14c38515" class="text-gray-700">
+        Project Manager
+      </a>
+    </td>
+    <td>
+      <a href="#">Sana'a</a>
+    </td>
+    <td>22 Feb, 26</td>
+  </tr>
+</tbody>
+</table>
+</body></html>`;
+
+describe('YemenHRPlugin (via ScraperPlugin)', () => {
+  const plugin = getSource('yemenhr');
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('should have correct name', () => {
+    expect(plugin.name).toBe('yemenhr');
+  });
+
+  it('fetchJobs should parse HTML table into JobItems', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(SAMPLE_YEMENHR_HTML, { status: 200 })
+    );
+
+    const jobs = await plugin.fetchJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].id).toBe('project-manager-acted-sanaa-14c38515');
+    expect(jobs[0].title).toBe('Project Manager');
+    expect(jobs[0].company).toBe('ACTED');
+    expect(jobs[0].link).toBe('https://yemenhr.com/jobs/project-manager-acted-sanaa-14c38515');
+    expect(jobs[0].imageUrl).toBe('https://yemenhr.com/storage/logos/ACTED.jpg');
+    expect(jobs[0].source).toBe('yemenhr');
+    // Listing metadata should include postedDate and deadline
+    expect(jobs[0].description).toContain('PostedDate: 08 Feb, 26');
+    expect(jobs[0].description).toContain('Deadline: 22 Feb, 26');
+  });
+
+  it('fetchJobs should throw on HTTP error', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('Server Error', { status: 500, statusText: 'Internal Server Error' })
+    );
+
+    await expect(plugin.fetchJobs()).rejects.toThrow('Scraper fetch failed');
+  });
+
+  it('processJob should fetch detail page and extract description', async () => {
+    const detailHtml = `<html><body>
+      <div class="job-description-container">
+        <p>We need a Project Manager with 5 years experience.</p>
+      </div>
+    </body></html>`;
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(detailHtml, { status: 200 })
+    );
+
+    const job: JobItem = {
+      id: 'project-manager-acted-sanaa-14c38515',
+      title: 'Project Manager',
+      company: 'ACTED',
+      link: 'https://yemenhr.com/jobs/project-manager-acted-sanaa-14c38515',
+      pubDate: '',
+      imageUrl: 'https://yemenhr.com/storage/logos/ACTED.jpg',
+      description: "Location: Sana'a\nPostedDate: 08 Feb, 26\nDeadline: 22 Feb, 26",
+      source: 'yemenhr',
+    };
+
+    const processed = await plugin.processJob(job);
+
+    expect(processed.title).toBe('Project Manager');
+    expect(processed.company).toBe('ACTED');
+    expect(processed.source).toBe('yemenhr');
+    expect(processed.description).toContain('Project Manager');
+    expect(processed.imageUrl).toBe('https://yemenhr.com/storage/logos/ACTED.jpg');
+    expect(processed.postedDate).toBe('08 Feb, 26');
+    expect(processed.deadline).toBe('22 Feb, 26');
+  });
+
+  it('processJob should fallback to listing metadata when detail page fails', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('Not Found', { status: 404 })
+    );
+
+    const job: JobItem = {
+      id: 'test-job',
+      title: 'Test Engineer',
+      company: 'Test Co',
+      link: 'https://yemenhr.com/jobs/test-job',
+      pubDate: '',
+      imageUrl: null,
+      description: 'Location: Aden\nPostedDate: 01 Feb, 26\nDeadline: 30 Jan, 2026',
+      source: 'yemenhr',
+    };
+
+    const processed = await plugin.processJob(job);
+
+    expect(processed.location).toBe('Aden');
+    expect(processed.postedDate).toBe('01 Feb, 26');
+    expect(processed.deadline).toBe('30 Jan, 2026');
+  });
+});
+
+// ============================================================================
+// Yemen HR Fetcher Tests (via shared RSS parser — legacy tests still valid)
 // ============================================================================
 
 const SAMPLE_ATOM_FEED = `<?xml version="1.0" encoding="UTF-8"?>
@@ -60,66 +191,6 @@ const SAMPLE_ATOM_FEED = `<?xml version="1.0" encoding="UTF-8"?>
     <content type="html">&lt;p&gt;Job Description We need a test engineer.&lt;/p&gt;&lt;p&gt;Location: Aden&lt;/p&gt;&lt;p&gt;Deadline: 30 Jan, 2026&lt;/p&gt;</content>
   </entry>
 </feed>`;
-
-describe('YemenHRPlugin (via RSSPlugin)', () => {
-  const plugin = getSource('yemenhr');
-
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('should have correct name', () => {
-    expect(plugin.name).toBe('yemenhr');
-  });
-
-  it('fetchJobs should throw without RSS_FEED_URL', async () => {
-    await expect(plugin.fetchJobs({} as any)).rejects.toThrow('RSS_FEED_URL not configured');
-  });
-
-  it('fetchJobs should delegate to fetchYemenHRJobs', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(SAMPLE_ATOM_FEED, { status: 200 })
-    );
-
-    const env = { RSS_FEED_URL: 'https://example.com/feed' } as any;
-    const jobs = await plugin.fetchJobs(env);
-
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0].id).toBe('test-engineer');
-    expect(jobs[0].title).toBe('Test Engineer');
-    expect(jobs[0].source).toBe('yemenhr');
-  });
-
-  it('processJob should clean HTML and extract metadata', async () => {
-    const job: JobItem = {
-      id: 'test-engineer',
-      title: 'Test Engineer',
-      company: 'ACME Corp',
-      link: 'https://yemenhr.com/jobs/test-engineer',
-      pubDate: '2026-01-15T10:00:00Z',
-      imageUrl: 'https://yemenhr.com/images/acme.png',
-      description: '<p>Job Description We need a test engineer.</p><p>Location: Aden</p><p>Deadline: 30 Jan, 2026</p>',
-      source: 'yemenhr',
-    };
-
-    const processed = await plugin.processJob(job);
-
-    expect(processed.title).toBe('Test Engineer');
-    expect(processed.company).toBe('ACME Corp');
-    expect(processed.source).toBe('yemenhr');
-    expect(processed.location).toBe('Aden');
-    expect(processed.deadline).toBe('30 Jan, 2026');
-    expect(processed.description).toContain('test engineer');
-  });
-});
-
-// ============================================================================
-// Yemen HR Fetcher Tests (via plugin sources)
-// ============================================================================
 
 describe('fetchAndParseRSSFeed (Yemen HR Atom)', () => {
   beforeEach(() => {
@@ -145,7 +216,7 @@ describe('fetchAndParseRSSFeed (Yemen HR Atom)', () => {
 });
 
 // ============================================================================
-// Yemen HR Processor Tests
+// Yemen HR Processor Tests (legacy processor still works)
 // ============================================================================
 
 describe('processYemenHRJob', () => {
@@ -202,7 +273,7 @@ const SAMPLE_RSS_FEED = `<?xml version="1.0" encoding="utf-8"?>
 </rss>`;
 
 describe('ReliefWebPlugin (via RSSPlugin)', () => {
-  const plugin = getSource('reliefweb');
+  const plugin = new RSSPlugin(reliefwebConfig);
 
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
@@ -412,7 +483,7 @@ describe('processReliefWebJob', () => {
 });
 
 // ============================================================================
-// EOI Plugin Tests
+// EOI Plugin Tests (via ScraperPlugin with responseExtractor)
 // ============================================================================
 
 const SAMPLE_EOI_API_RESPONSE = JSON.stringify({
@@ -441,8 +512,8 @@ const SAMPLE_EOI_API_RESPONSE = JSON.stringify({
   total_data: 1,
 });
 
-describe('EOIPlugin', () => {
-  const plugin = new EOIPlugin();
+describe('EOIPlugin (via ScraperPlugin)', () => {
+  const plugin = getSource('eoi');
 
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
@@ -456,7 +527,7 @@ describe('EOIPlugin', () => {
     expect(plugin.name).toBe('eoi');
   });
 
-  it('fetchJobs should return JobItem array from API', async () => {
+  it('fetchJobs should return JobItem array from API via responseExtractor', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(SAMPLE_EOI_API_RESPONSE, { status: 200 })
     );
@@ -467,11 +538,11 @@ describe('EOIPlugin', () => {
     expect(jobs[0].id).toBe('eoi-12345');
     expect(jobs[0].title).toBe('Data Analyst');
     expect(jobs[0].company).toBe('UNICEF');
+    expect(jobs[0].link).toBe('https://eoi-ye.com/jobs/12345/');
     expect(jobs[0].source).toBe('eoi');
   });
 
   it('processJob should handle missing detail page', async () => {
-    // Simulate failed detail page fetch
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response('Not Found', { status: 404 })
     );
@@ -481,9 +552,9 @@ describe('EOIPlugin', () => {
       title: 'Data Analyst',
       company: 'UNICEF',
       link: 'https://eoi-ye.com/jobs/12345/',
-      pubDate: '2026-02-01T00:00:00.000Z',
+      pubDate: '',
       imageUrl: null,
-      description: 'الفئة: تقنية معلومات\nالموقع: صنعاء',
+      description: 'Location: صنعاء\nDeadline: 15-02-2026\nCategory: تقنية معلومات',
       source: 'eoi',
     };
 
@@ -492,41 +563,19 @@ describe('EOIPlugin', () => {
     expect(processed.title).toBe('Data Analyst');
     expect(processed.company).toBe('UNICEF');
     expect(processed.source).toBe('eoi');
-    expect(processed.description).toBeDefined();
+    expect(processed.location).toBe('صنعاء');
+    expect(processed.deadline).toBe('15-02-2026');
+    expect(processed.category).toBe('تقنية معلومات');
   });
 
-  it('processJob should return fallback description when detail page is expired', async () => {
-    // Simulate expired page
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response('<html><body>هذا الإعلان منتهي</body></html>', { status: 200 })
-    );
-
-    const job: JobItem = {
-      id: 'eoi-12345',
-      title: 'Data Analyst',
-      company: 'UNICEF',
-      link: 'https://eoi-ye.com/jobs/12345/',
-      pubDate: '2026-02-01T00:00:00.000Z',
-      imageUrl: null,
-      description: 'الفئة: تقنية معلومات\nالموقع: صنعاء\nتاريخ النشر: 01-02-2026',
-      source: 'eoi',
-    };
-
-    const processed = await plugin.processJob(job);
-
-    // Fallback path: no detail page available, uses basic metadata
-    expect(processed.source).toBe('eoi');
-    expect(processed.description).toBeDefined();
-  });
-
-  it('processJob should extract metadata when detail page is available', async () => {
+  it('processJob should extract description from detail page', async () => {
     const detailHtml = `
     <html><body>
-    <img src="https://eoi-ye.com/storage/users/logo.png" alt="Logo">
+    <img class="img-responsive thumbnail" src="https://eoi-ye.com/storage/users/logo.png" alt="Logo">
     <div class="detail-adv">
-    <p>We are hiring a Data Analyst for our Sana'a office.</p>
+      <p>We are hiring a Data Analyst for our Sana'a office.</p>
+      <p>Requirements: 3 years experience in data analysis.</p>
     </div>
-    <span class="end_date">الموعد الاخير : 15-02-2026 </span><span> الوقت: 23:59</span>
     </body></html>`;
 
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -538,17 +587,16 @@ describe('EOIPlugin', () => {
       title: 'Data Analyst',
       company: 'UNICEF',
       link: 'https://eoi-ye.com/jobs/12345/',
-      pubDate: '2026-02-01T00:00:00.000Z',
+      pubDate: '',
       imageUrl: null,
-      description: 'الفئة: تقنية معلومات\nالموقع: صنعاء\nتاريخ النشر: 01-02-2026',
+      description: 'Location: صنعاء\nDeadline: 15-02-2026',
       source: 'eoi',
     };
 
     const processed = await plugin.processJob(job);
 
-    expect(processed.location).toBe('صنعاء');
-    expect(processed.category).toBe('تقنية معلومات');
+    expect(processed.description).toContain('Data Analyst');
+    expect(processed.description).toContain('3 years experience');
     expect(processed.imageUrl).toBe('https://eoi-ye.com/storage/users/logo.png');
-    expect(processed.deadline).toContain('15-02-2026');
   });
 });

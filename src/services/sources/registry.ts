@@ -1,39 +1,283 @@
-import type { JobSource } from '../../types';
-import type { JobSourcePlugin } from './types';
-import { RSSPlugin } from './rss-shared/plugin';
-import { yemenhrConfig, reliefwebConfig } from './rss-shared/configs';
-import { EOIPlugin } from './eoi';
-
 /**
- * Registry of all available job source plugins.
+ * Centralized source registry — the SINGLE source of truth for all job sources.
  *
- * RSS sources: Add a config to rss-shared/configs.ts, then add 1 line here.
- * Custom sources: Implement JobSourcePlugin directly (like EOIPlugin).
+ * Adding a source:  1 config object + 1 entry here. Everything else auto-derives.
+ * Removing a source: delete the entry. TypeScript catches remaining references.
+ *
+ * Exports: JobSource type, DEFAULT_SOURCE, plugin accessors, metadata derivation helpers.
  */
-export const SOURCES: Record<JobSource, JobSourcePlugin> = {
-  yemenhr: new RSSPlugin(yemenhrConfig),
-  eoi: new EOIPlugin(),
-  // reliefweb: new RSSPlugin(reliefwebConfig), // DISABLED
-} as Record<JobSource, JobSourcePlugin>;
+
+import type { JobSourcePlugin } from './types';
+import type { AIPromptConfig } from '../ai-prompts';
+import type { Env } from '../../types';
+import { RSSPlugin } from './rss-shared/plugin';
+import { reliefwebConfig } from './rss-shared/configs';
+import { ScraperPlugin } from './scraper-shared/plugin';
+import { yemenhrScraperConfig, eoiScraperConfig, qtbConfig, yldfConfig } from './scraper-shared/configs';
+import { getSourcesFromDB } from '../storage';
+
+// ============================================================================
+// Source Definition
+// ============================================================================
+
+export interface SourceDefinition {
+  /** Plugin instance (omit for catch-all sources like 'rss' that have no fetcher) */
+  plugin?: JobSourcePlugin;
+  enabled: boolean;
+
+  // Telegram metadata
+  hashtag: string;
+  displayName: string;
+
+  // AI prompt behavior (omit → safe defaults: no howToApply, generic fallback)
+  aiPrompt?: AIPromptConfig;
+
+  // D1 metadata
+  type: 'rss' | 'scraper' | 'api';
+  baseUrl: string;
+  feedUrl?: string;
+
+  // Scheduling — which cron expression triggers this source
+  cronSchedule: string;
+}
+
+// ============================================================================
+// Registry — add/remove sources HERE, everything else auto-derives
+// ============================================================================
+
+const SOURCES = {
+  rss: {
+    // Catch-all default for unknown/generic sources. No plugin — never fetched.
+    enabled: true,
+    hashtag: '#وظائف',
+    displayName: 'RSS',
+    aiPrompt: { includeHowToApply: false, applyFallback: 'راجع رابط الوظيفة أدناه' },
+    type: 'rss' as const,
+    baseUrl: '',
+    cronSchedule: '0 * * * *',
+  },
+  yemenhr: {
+    plugin: new ScraperPlugin(yemenhrScraperConfig),
+    enabled: true,
+    hashtag: '#YemenHR',
+    displayName: 'Yemen HR',
+    aiPrompt: {
+      includeHowToApply: false,
+      applyFallback: 'راجع رابط الوظيفة أدناه',
+      sourceHint: 'This job is from YemenHR.com, a Yemeni job board. Jobs are in Yemen — location should specify the city. No application contact info is extracted — do NOT invent any.',
+    },
+    type: 'scraper' as const,
+    baseUrl: 'https://yemenhr.com',
+    cronSchedule: '0 * * * *', // hourly — active poster
+  },
+  eoi: {
+    plugin: new ScraperPlugin(eoiScraperConfig),
+    enabled: true,
+    hashtag: '#EOI',
+    displayName: 'EOI Yemen',
+    aiPrompt: {
+      includeHowToApply: true,
+      sourceHint: 'This job is from EOI Yemen (eoi-ye.com), a Yemeni job aggregator. Application contacts (emails, URLs, phones) are provided — preserve them exactly. Jobs are always in Yemen — location should specify the city.',
+    },
+    type: 'api' as const,
+    baseUrl: 'https://eoi-ye.com',
+    feedUrl: 'https://eoi-ye.com/live_search/action1?type=0&title=',
+    cronSchedule: '0 * * * *', // hourly — active poster
+  },
+  reliefweb: {
+    plugin: new RSSPlugin(reliefwebConfig),
+    enabled: true,
+    hashtag: '#ReliefWeb',
+    displayName: 'ReliefWeb',
+    aiPrompt: {
+      includeHowToApply: true,
+      sourceHint: 'This job is from ReliefWeb, an international humanitarian job board. Application instructions and links are extracted — preserve them exactly. Jobs may cover Yemen only or multiple countries. If location includes countries beyond Yemen, mention that (e.g., اليمن ودول أخرى).',
+    },
+    type: 'rss' as const,
+    baseUrl: 'https://reliefweb.int',
+    feedUrl: 'https://reliefweb.int/jobs/rss.xml?advanced-search=%28C255%29',
+    cronSchedule: '0 */6 * * *', // every 6h — moderate frequency
+  },
+  ykbank: {
+    // Disabled — last job posted Dec 2024, feed appears stale
+    enabled: false,
+    hashtag: '#YKBank',
+    displayName: 'YK Bank',
+    type: 'rss' as const,
+    baseUrl: 'https://yk-bank.zohorecruit.com',
+    feedUrl: 'https://yk-bank.zohorecruit.com/jobs/Careers/rss',
+    cronSchedule: '0 0 * * *', // daily — rarely posts
+  },
+  qtb: {
+    plugin: new ScraperPlugin(qtbConfig),
+    enabled: false,
+    hashtag: '#QTBBank',
+    displayName: 'QTB Bank',
+    aiPrompt: {
+      includeHowToApply: false,
+      applyFallback: 'قدّم عبر صفحة الوظيفة في موقع بنك القطيبي',
+      sourceHint: 'This job is from QTB Bank (Al-Qatibi Islamic Bank, qtbbank.com). The bank posts its own jobs only. Description is in Arabic. Location should specify the branch or city in Yemen. No application contact info is available — do NOT invent any.',
+    },
+    type: 'scraper' as const,
+    baseUrl: 'https://jobs.qtbbank.com',
+    cronSchedule: '0 0 * * *', // daily — rarely posts
+  },
+  yldf: {
+    plugin: new ScraperPlugin(yldfConfig),
+    enabled: false,
+    hashtag: '#YLDF',
+    displayName: 'YLDF',
+    aiPrompt: {
+      includeHowToApply: false,
+      applyFallback: 'قدّم عبر صفحة الوظيفة في موقع YLDF',
+      sourceHint: 'This job is from YLDF (Youth Leadership Development Foundation, erp.yldf.org). YLDF posts its own jobs only. Detail page has responsibilities, qualifications, and policies. Descriptions may be in English — translate to Arabic. Location is always in Yemen — specify the city. No application contact info is extracted — do NOT invent any.',
+    },
+    type: 'scraper' as const,
+    baseUrl: 'https://erp.yldf.org',
+    cronSchedule: '0 0 * * *', // daily — rarely posts
+  },
+} satisfies Record<string, SourceDefinition>;
+
+// ============================================================================
+// Derived types and constants
+// ============================================================================
+
+/** Job source identifier — auto-derived from registry keys. */
+export type JobSource = keyof typeof SOURCES;
+
+/** Default source for unknown/generic jobs. */
+export const DEFAULT_SOURCE: JobSource = 'rss';
+
+// Widened view for iteration helpers (satisfies preserves literal types which complicates Object.values)
+const DEFS: Record<string, SourceDefinition> = SOURCES;
+
+// ============================================================================
+// Plugin accessors (same API as before)
+// ============================================================================
 
 /**
- * Get a job source plugin by name.
- * @param name - Source identifier ('yemenhr', 'eoi', etc.)
- * @returns The plugin instance
- * @throws Error if source not found
+ * Get a job source plugin by name (enabled or disabled).
+ * @throws Error if source not found or has no plugin
  */
-export function getSource(name: JobSource): JobSourcePlugin {
-  const plugin = SOURCES[name];
-  if (!plugin) {
+export function getSource(name: string): JobSourcePlugin {
+  const entry = DEFS[name];
+  if (!entry?.plugin) {
     throw new Error(`Job source plugin not found: ${name}`);
   }
-  return plugin;
+  return entry.plugin;
+}
+
+/** Get enabled source plugins only (for cron/run pipeline). */
+export function getEnabledSources(): JobSourcePlugin[] {
+  return Object.values(DEFS)
+    .filter((e): e is SourceDefinition & { plugin: JobSourcePlugin } => !!e.plugin && e.enabled)
+    .map(e => e.plugin);
+}
+
+/** Get ALL registered source plugins (for /test command). */
+export function getAllSources(): JobSourcePlugin[] {
+  return Object.values(DEFS)
+    .filter((e): e is SourceDefinition & { plugin: JobSourcePlugin } => !!e.plugin)
+    .map(e => e.plugin);
+}
+
+/** Get all source entries with name and enabled status (for /source list). */
+export function getSourceEntries(): { name: string; enabled: boolean }[] {
+  return Object.entries(DEFS).map(([name, entry]) => ({ name, enabled: entry.enabled }));
+}
+
+// ============================================================================
+// Metadata derivation helpers — consumers call these instead of hardcoding
+// ============================================================================
+
+/** Hashtag map derived from registry. Used by format.ts. */
+export function getHashtags(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(DEFS).map(([k, v]) => [k, v.hashtag])
+  );
+}
+
+/** AI prompt configs derived from registry. Used by ai-prompts.ts. */
+export function getAIPromptConfigs(): Record<string, AIPromptConfig> {
+  return Object.fromEntries(
+    Object.entries(DEFS)
+      .filter(([_, v]) => v.aiPrompt)
+      .map(([k, v]) => [k, v.aiPrompt!])
+  );
+}
+
+/** All source names that have AI prompt configs. */
+export function getConfiguredSourceNames(): string[] {
+  return Object.entries(DEFS)
+    .filter(([_, v]) => v.aiPrompt)
+    .map(([k]) => k);
+}
+
+/** Get the source definition for a given name. */
+export function getSourceDefinition(name: string): SourceDefinition | undefined {
+  return DEFS[name];
+}
+
+// ============================================================================
+// D1 sync — keeps sources table in sync with registry
+// ============================================================================
+
+/**
+ * Sync code-defined sources to D1. Uses INSERT OR IGNORE to preserve D1 edits
+ * (enabled, hashtag, displayName, ai_prompt_config are editable via API).
+ * Only inserts NEW sources that don't exist in D1 yet.
+ */
+export async function syncSourcesTable(env: Env): Promise<void> {
+  try {
+    const stmt = env.JOBS_DB.prepare(
+      `INSERT OR IGNORE INTO sources (id, display_name, hashtag, type, base_url, feed_url, enabled, ai_prompt_config, cron_schedule)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    await env.JOBS_DB.batch(
+      Object.entries(DEFS).map(([id, def]) =>
+        stmt.bind(
+          id, def.displayName, def.hashtag, def.type, def.baseUrl,
+          def.feedUrl ?? null, def.enabled ? 1 : 0,
+          def.aiPrompt ? JSON.stringify(def.aiPrompt) : null,
+          def.cronSchedule
+        )
+      )
+    );
+  } catch (error) {
+    console.error('Failed to sync sources table:', error);
+  }
 }
 
 /**
- * Get all registered source plugins.
- * @returns Array of all plugin instances
+ * Get enabled source plugins using D1 enabled flag.
+ * If `cron` is provided, only returns sources matching that cron_schedule.
+ * If `cron` is undefined (manual/webhook), returns ALL enabled sources.
+ * Falls back to code defaults if D1 read fails.
  */
-export function getAllSources(): JobSourcePlugin[] {
-  return Object.values(SOURCES);
+export async function getEnabledSourcesFromDB(env: Env, cron?: string): Promise<JobSourcePlugin[]> {
+  try {
+    const dbSources = await getSourcesFromDB(env);
+    const filtered = dbSources.filter(s =>
+      s.enabled && (!cron || s.cron_schedule === cron)
+    );
+    const enabledIds = new Set(filtered.map(s => s.id));
+    return Object.entries(DEFS)
+      .filter(([id, def]) => def.plugin && enabledIds.has(id))
+      .map(([_, def]) => def.plugin!);
+  } catch {
+    // D1 read failed — fall back to code defaults
+    return getEnabledSources();
+  }
+}
+
+/**
+ * Get hashtag map from D1 sources table (with code fallback).
+ */
+export async function getHashtagsFromDB(env: Env): Promise<Record<string, string>> {
+  try {
+    const dbSources = await getSourcesFromDB(env);
+    return Object.fromEntries(dbSources.map(s => [s.id, s.hashtag]));
+  } catch {
+    return getHashtags();
+  }
 }
