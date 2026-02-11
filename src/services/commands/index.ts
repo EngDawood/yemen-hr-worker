@@ -11,7 +11,8 @@ import {
   handleStats, handleRuns, handleModel,
   type CommandResult,
 } from './kv';
-import { handleTest, handleSourceList, handleSourceDebug } from './pipeline';
+import { handleTest, handleSourceList, handleSourceDebug, handleSourceToggle } from './pipeline';
+import { getSourcesFromDB } from '../storage';
 import { handlePrompt } from './prompt';
 
 // ============================================================================
@@ -32,6 +33,8 @@ const COMMANDS_HELP = `
 <b>Sources</b>
 /source - List all sources
 /source [name] - Debug a source
+/source enable [name] - Enable a source
+/source disable [name] - Disable a source
 
 <b>Actions</b>
 /run - Trigger job processing
@@ -195,6 +198,17 @@ async function handleCallbackQuery(
       const result = await handleSourceList(env);
       text = typeof result === 'string' ? result : result.text;
       keyboard = typeof result === 'string' ? undefined : result.keyboard;
+    } else if (data.startsWith('src:toggle:')) {
+      const sourceName = data.split(':')[2];
+      // Check current state and flip it
+      const dbSources = await getSourcesFromDB(env);
+      const source = dbSources.find(s => s.id === sourceName);
+      if (source) {
+        const action = source.enabled ? 'disable' : 'enable';
+        text = await handleSourceToggle(env, action, sourceName);
+      } else {
+        text = `❌ Source not found: ${sourceName}`;
+      }
     } else if (data.startsWith('src:')) {
       const sourceName = data.split(':')[1];
       text = await handleSourceDebug(sourceName, env);
@@ -333,6 +347,8 @@ export async function handleWebhook(
       case 'source':
         if (args.length === 0) {
           response = await handleSourceList(env);
+        } else if ((args[0] === 'enable' || args[0] === 'disable') && args[1]) {
+          response = await handleSourceToggle(env, args[0], args[1]);
         } else {
           response = await handleSourceDebug(args[0], env);
         }
