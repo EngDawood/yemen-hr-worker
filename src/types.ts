@@ -4,7 +4,7 @@ export interface Env {
   AI: Ai;
   CF_VERSION_METADATA: { id: string; tag?: string };
   TELEGRAM_BOT_TOKEN: string;
-  RSS_FEED_URL: string;
+  RSS_FEED_URL?: string;
   TELEGRAM_CHAT_ID: string;
   // Optional configuration (with defaults)
   ENVIRONMENT?: string; // "production" | "preview"
