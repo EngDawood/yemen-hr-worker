@@ -36,9 +36,9 @@ export class ScraperPlugin implements JobSourcePlugin {
     const locMatch = description.match(/Location:\s*(.+)/i);
     const location = locMatch ? locMatch[1].trim() : undefined;
     const pdMatch = description.match(/PostedDate:\s*(.+)/i);
-    const postedDate = pdMatch ? pdMatch[1].trim() : undefined;
+    let postedDate = pdMatch ? pdMatch[1].trim() : undefined;
     const dlMatch = description.match(/Deadline:\s*(.+)/i);
-    const deadline = dlMatch ? dlMatch[1].trim() : undefined;
+    let deadline = dlMatch ? dlMatch[1].trim() : undefined;
     const catMatch = description.match(/Category:\s*(.+)/i);
     const category = catMatch ? catMatch[1].trim() : undefined;
 
@@ -51,6 +51,13 @@ export class ScraperPlugin implements JobSourcePlugin {
             detailHtml = this.config.detailPage.htmlTransform(detailHtml);
           }
           const doc = parseHTML(detailHtml);
+
+          // Extract metadata from detail page BEFORE cleanup removes <script> tags
+          if (this.config.detailPage.detailMetaExtractor) {
+            const meta = this.config.detailPage.detailMetaExtractor(doc);
+            if (meta.postedDate && !postedDate) postedDate = meta.postedDate;
+            if (meta.deadline && !deadline) deadline = meta.deadline;
+          }
 
           // Remove cleanup elements before extracting description
           if (this.config.detailPage.cleanupSelectors) {

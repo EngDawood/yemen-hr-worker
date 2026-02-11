@@ -1,3 +1,4 @@
+import type { HTMLElement } from 'node-html-parser';
 import type { Env, JobItem, ProcessedJob } from '../../../types';
 
 /**
@@ -60,6 +61,8 @@ export interface ScraperSourceConfig {
     imageSelector?: string;
     /** Transform raw HTML before parsing (e.g., fix malformed tags) */
     htmlTransform?: (html: string) => string;
+    /** Extract metadata (dates, etc.) from parsed detail page DOM. Runs BEFORE cleanup. */
+    detailMetaExtractor?: (doc: HTMLElement) => { postedDate?: string; deadline?: string };
   };
 
   /** Custom HTTP headers for the listing page request */

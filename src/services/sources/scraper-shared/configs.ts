@@ -102,6 +102,20 @@ export const qtbConfig: ScraperSourceConfig = {
     cleanupSelectors: ['nav', 'footer', 'script', 'style', '#alert-message', '#pre-loader', '.w-nav', '.section.no-padding'],
     // QTB has malformed HTML: <h1>...</h2> — fix before parsing
     htmlTransform: (html) => html.replace(/<\/h2>/g, '</h1>'),
+    // Dates are in <strong class="clor-roban"> cards with Arabic labels + YYYY-MM-DD
+    detailMetaExtractor: (doc) => {
+      const dateRegex = /\d{4}-\d{2}-\d{2}/;
+      let postedDate: string | undefined;
+      let deadline: string | undefined;
+      for (const el of doc.querySelectorAll('strong.clor-roban')) {
+        const text = el.textContent || '';
+        const match = text.match(dateRegex);
+        if (!match) continue;
+        if (text.includes('تاريخ بدء التقديم')) postedDate = match[0];
+        else if (text.includes('تاريخ انتهاء التقديم')) deadline = match[0];
+      }
+      return { postedDate, deadline };
+    },
   },
 };
 
