@@ -189,8 +189,8 @@ describe('getCodeDefault (sync, code-only)', () => {
     expect(getCodeDefault('reliefweb').includeHowToApply).toBe(true);
   });
 
-  it('should return includeHowToApply: false for yemenhr', () => {
-    expect(getCodeDefault('yemenhr').includeHowToApply).toBe(false);
+  it('should return includeHowToApply: true for yemenhr', () => {
+    expect(getCodeDefault('yemenhr').includeHowToApply).toBe(true);
   });
 
   it('should return includeHowToApply: false for qtb', () => {
@@ -217,7 +217,7 @@ describe('getCodeDefault (sync, code-only)', () => {
   it('should have applyFallback for no-apply sources', () => {
     expect(getCodeDefault('qtb').applyFallback).toContain('بنك القطيبي');
     expect(getCodeDefault('yldf').applyFallback).toContain('YLDF');
-    expect(getCodeDefault('yemenhr').applyFallback).toBeDefined();
+    expect(getCodeDefault('yemenhr').applyFallback).toBeUndefined();
   });
 
   it('should NOT have applyFallback for sources with apply data', () => {
@@ -282,12 +282,12 @@ describe('getPromptConfig (async, D1 merge)', () => {
 });
 
 describe('summarizeJob prompt assembly', () => {
-  it('should NOT include apply template for yemenhr source', async () => {
+  it('should include apply template for yemenhr source', async () => {
     const { env, capturedPrompts } = makeCapturingEnv();
     await summarizeJob(makeJob({ source: 'yemenhr' }), env);
 
-    expect(capturedPrompts[0]).not.toContain('📧 كيفية التقديم:');
-    expect(capturedPrompts[0]).toContain('DO NOT include any how-to-apply section');
+    expect(capturedPrompts[0]).toContain('📧 كيفية التقديم:');
+    expect(capturedPrompts[0]).not.toContain('DO NOT include any how-to-apply section');
   });
 
   it('should include apply template for eoi source', async () => {
@@ -324,10 +324,10 @@ describe('summarizeJob prompt assembly', () => {
     expect(capturedPrompts[0]).toContain('QTB Bank');
   });
 
-  it('should use higher description limit for no-apply sources', async () => {
+  it('should use standard description limit for yemenhr (apply-enabled)', async () => {
     const { env, capturedPrompts } = makeCapturingEnv();
     await summarizeJob(makeJob({ source: 'yemenhr' }), env);
-    expect(capturedPrompts[0]).toContain('MAXIMUM 350 characters');
+    expect(capturedPrompts[0]).toContain('MAXIMUM 250 characters');
   });
 
   it('should use standard description limit for apply sources', async () => {
