@@ -91,12 +91,12 @@ export async function handleTest(env: Env, adminChatId: string, sourceName?: str
       let sendResult;
       if (message.hasImage && message.imageUrl) {
         sendResult = await sendPhotoMessage(
-          env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
+          env.TELEGRAM_BOT_TOKEN, adminChatId,
           message.imageUrl, message.fullMessage
         );
       } else {
         sendResult = await sendTextMessage(
-          env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID,
+          env.TELEGRAM_BOT_TOKEN, adminChatId,
           message.fullMessage
         );
       }

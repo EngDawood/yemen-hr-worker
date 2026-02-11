@@ -1,6 +1,5 @@
 /**
  * Telegram admin command handlers.
- * These commands are only available in the preview environment.
  * Supports both text commands and inline keyboard button callbacks.
  */
 
@@ -37,13 +36,13 @@ const COMMANDS_HELP = `
 <b>Actions</b>
 /run - Trigger job processing
 /test - Test pipeline (no writes)
-/clear [id|all] - Remove from KV
+/clear [id] - Remove from KV
 
 <b>Config</b>
 /model - View/set AI model
 /prompt - AI prompt configs
 
-<i>Preview environment only.</i>
+<i>Admin only.</i>
 `.trim();
 
 const HELP_KEYBOARD: InlineKeyboardMarkup = {
@@ -159,11 +158,8 @@ async function handleCallbackQuery(
     return new Response('OK', { status: 200 });
   }
 
-  // Auth + env guard (same as commands)
+  // Auth guard
   if (!isAuthorized(query.from.id, chatId, chatType, env.ADMIN_CHAT_ID)) {
-    return new Response('OK', { status: 200 });
-  }
-  if (env.ENVIRONMENT === 'production') {
     return new Response('OK', { status: 200 });
   }
 
@@ -264,11 +260,6 @@ export async function handleWebhook(
     return new Response('OK', { status: 200 });
   }
 
-  // Environment guard: block commands in production
-  if (env.ENVIRONMENT === 'production') {
-    return new Response('OK', { status: 200 });
-  }
-
   const { command, args, chatId } = parsed;
   let response: string | CommandResult | null;
 
@@ -301,7 +292,7 @@ export async function handleWebhook(
 
       case 'clear':
         if (args.length === 0) {
-          response = '❌ Usage: /clear [id|all]';
+          response = '❌ Usage: /clear [id]';
         } else {
           response = await handleClear(env, args[0]);
         }

@@ -12,7 +12,7 @@ import {
   listRuns,
   getSetting, setSetting,
   // KV functions (for /clear only)
-  deleteJobFromKV, deleteDedupKey, getPostedJobRecord, clearAllKV,
+  deleteJobFromKV, deleteDedupKey, getPostedJobRecord,
 } from '../storage';
 
 /** Command response with optional inline keyboard. */
@@ -142,11 +142,6 @@ export async function handleSearch(env: Env, keyword: string, page = 1): Promise
  * Handle /clear <id|all> command — remove job + dedup key from KV.
  */
 export async function handleClear(env: Env, target: string): Promise<string> {
-  if (target === 'all') {
-    const result = await clearAllKV(env);
-    return `✅ Cleared all KV keys.\n\nDeleted: ${result.jobKeys} job + ${result.dedupKeys} dedup + ${result.metaKeys} meta keys.`;
-  }
-
   const record = await getPostedJobRecord(env, target);
   if (!record) {
     return `❌ Job not found in KV: <code>${target}</code>`;
