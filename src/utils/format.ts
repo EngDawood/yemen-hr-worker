@@ -84,7 +84,8 @@ export function formatTelegramMessage(
   imageUrl: string | null,
   linkedinUrl?: string,
   source?: string,
-  category?: string
+  category?: string,
+  sourceHashtag?: string
 ): TelegramMessage {
   const LINKEDIN_URL = linkedinUrl || DEFAULT_LINKEDIN_URL;
 
@@ -108,7 +109,7 @@ export function formatTelegramMessage(
   // Build metadata line: #YemenHR | #تطوير
   let metadataLine = '';
   if (source) {
-    const hashtag = SOURCE_HASHTAGS[source];
+    const hashtag = sourceHashtag || SOURCE_HASHTAGS[source];
     const categoryHashtag = category ? `#${category.replace(/\s+/g, '_')}` : '';
     metadataLine = categoryHashtag ? `${hashtag} | ${categoryHashtag}` : hashtag;
   }

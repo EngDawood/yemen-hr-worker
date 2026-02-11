@@ -1,3 +1,4 @@
+import type { HTMLElement } from 'node-html-parser';
 import type { Env, JobItem, ProcessedJob } from '../../../types';
 
 /**
@@ -47,6 +48,9 @@ export interface ScraperSourceConfig {
   /** Default company name when not extractable from the page */
   defaultCompany?: string;
 
+  /** Default image URL when no per-job image is available (e.g., org logo) */
+  defaultImage?: string;
+
   /** Optional detail page config — fetch individual job pages for full descriptions */
   detailPage?: {
     /** CSS selector for the main description content on the detail page */
@@ -55,6 +59,10 @@ export interface ScraperSourceConfig {
     cleanupSelectors?: string[];
     /** CSS selector for image on the detail page (extracts src). Overrides listing-page image. */
     imageSelector?: string;
+    /** Transform raw HTML before parsing (e.g., fix malformed tags) */
+    htmlTransform?: (html: string) => string;
+    /** Extract metadata (dates, etc.) from parsed detail page DOM. Runs BEFORE cleanup. */
+    detailMetaExtractor?: (doc: HTMLElement) => { postedDate?: string; deadline?: string };
   };
 
   /** Custom HTTP headers for the listing page request */

@@ -36,18 +36,28 @@ export class ScraperPlugin implements JobSourcePlugin {
     const locMatch = description.match(/Location:\s*(.+)/i);
     const location = locMatch ? locMatch[1].trim() : undefined;
     const pdMatch = description.match(/PostedDate:\s*(.+)/i);
-    const postedDate = pdMatch ? pdMatch[1].trim() : undefined;
+    let postedDate = pdMatch ? pdMatch[1].trim() : undefined;
     const dlMatch = description.match(/Deadline:\s*(.+)/i);
-    const deadline = dlMatch ? dlMatch[1].trim() : undefined;
+    let deadline = dlMatch ? dlMatch[1].trim() : undefined;
     const catMatch = description.match(/Category:\s*(.+)/i);
     const category = catMatch ? catMatch[1].trim() : undefined;
 
     // Fetch detail page for full description if configured
     if (this.config.detailPage) {
       try {
-        const detailHtml = await this.fetchDetailPage(job.link);
+        let detailHtml = await this.fetchDetailPage(job.link);
         if (detailHtml) {
+          if (this.config.detailPage.htmlTransform) {
+            detailHtml = this.config.detailPage.htmlTransform(detailHtml);
+          }
           const doc = parseHTML(detailHtml);
+
+          // Extract metadata from detail page BEFORE cleanup removes <script> tags
+          if (this.config.detailPage.detailMetaExtractor) {
+            const meta = this.config.detailPage.detailMetaExtractor(doc);
+            if (meta.postedDate && !postedDate) postedDate = meta.postedDate;
+            if (meta.deadline && !deadline) deadline = meta.deadline;
+          }
 
           // Remove cleanup elements before extracting description
           if (this.config.detailPage.cleanupSelectors) {
@@ -72,6 +82,11 @@ export class ScraperPlugin implements JobSourcePlugin {
         // Detail page fetch failed — fall back to listing-page description
         console.warn(`[${this.config.sourceName}] Detail page fetch failed for ${job.link}: ${err}`);
       }
+    }
+
+    // Fall back to default image if no per-job image found
+    if (!imageUrl && this.config.defaultImage) {
+      imageUrl = this.config.defaultImage;
     }
 
     return {

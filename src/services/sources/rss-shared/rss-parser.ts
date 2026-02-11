@@ -228,6 +228,7 @@ export async function fetchAndParseRSSFeed(
     headers: {
       'User-Agent': 'Yemen-HR-Bot/1.0',
     },
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!response.ok) {
