@@ -4,7 +4,6 @@ import { sendTextMessage, setMyCommands } from './services/telegram';
 import { handleWebhook, BOT_COMMANDS } from './services/commands';
 import { processJobs, sendDailySummary } from './services/pipeline';
 import { syncSourcesTable } from './services/sources/registry';
-import { clearAllKV } from './services/storage';
 import { jsonResponse } from './utils/http';
 import { handleApiRoute } from './api/routes';
 
@@ -102,15 +101,9 @@ export default {
     }
 
     // Register bot command menu with Telegram (preview only, one-time setup)
-    if (url.pathname === '/set-commands' && env.ENVIRONMENT === 'preview') {
+    if (url.pathname === '/set-commands') {
       const ok = await setMyCommands(env.TELEGRAM_BOT_TOKEN, BOT_COMMANDS, env.ADMIN_CHAT_ID);
       return jsonResponse({ ok, commands: BOT_COMMANDS.length });
-    }
-
-    // Clear KV cache (preview only)
-    if (url.pathname === '/clear-kv' && env.ENVIRONMENT === 'preview') {
-      const result = await clearAllKV(env);
-      return jsonResponse({ cleared: result.total, keys: result.keyNames });
     }
 
     // Health check / status
@@ -141,7 +134,6 @@ export default {
         '/api/settings/:key': 'Get/update settings (GET/PUT)',
         '/webhook': 'Telegram webhook for admin commands (POST)',
         '/set-commands': 'Register bot command menu (preview only)',
-        '/clear-kv': 'Clear all KV keys (preview only)',
       },
     });
   },
