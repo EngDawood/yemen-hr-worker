@@ -45,8 +45,11 @@ export class ScraperPlugin implements JobSourcePlugin {
     // Fetch detail page for full description if configured
     if (this.config.detailPage) {
       try {
-        const detailHtml = await this.fetchDetailPage(job.link);
+        let detailHtml = await this.fetchDetailPage(job.link);
         if (detailHtml) {
+          if (this.config.detailPage.htmlTransform) {
+            detailHtml = this.config.detailPage.htmlTransform(detailHtml);
+          }
           const doc = parseHTML(detailHtml);
 
           // Remove cleanup elements before extracting description
@@ -72,6 +75,11 @@ export class ScraperPlugin implements JobSourcePlugin {
         // Detail page fetch failed — fall back to listing-page description
         console.warn(`[${this.config.sourceName}] Detail page fetch failed for ${job.link}: ${err}`);
       }
+    }
+
+    // Fall back to default image if no per-job image found
+    if (!imageUrl && this.config.defaultImage) {
+      imageUrl = this.config.defaultImage;
     }
 
     return {

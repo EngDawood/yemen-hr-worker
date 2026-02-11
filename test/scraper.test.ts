@@ -132,8 +132,10 @@ describe('ScraperPlugin', () => {
   });
 
   it('processJob should fetch detail page when configured', async () => {
+    // QTB has malformed HTML: <h1>...</h2> — htmlTransform fixes this
     const detailHtml = `<html><body>
-      <div class="container">
+      <div class="container" dir="rtl">
+        <h1 class="font-3">وظيفة شاغرة</h2>
         <p>Full job description with requirements and responsibilities.</p>
       </div>
     </body></html>`;
@@ -208,9 +210,10 @@ describe('ScraperPlugin', () => {
 
   it('processJob should apply cleanup selectors on detail page', async () => {
     const detailHtml = `<html><body>
+      <div id="alert-message"><div class="container">Contact us banner</div></div>
       <nav>Navigation</nav>
-      <div class="container">
-        <h1>Job Title</h1>
+      <div class="container" dir="rtl">
+        <h1>Job Title</h2>
         <p>Real job content here.</p>
       </div>
       <footer>Footer stuff</footer>
@@ -237,6 +240,7 @@ describe('ScraperPlugin', () => {
     expect(processed.description).toContain('Real job content');
     expect(processed.description).not.toContain('Navigation');
     expect(processed.description).not.toContain('Footer stuff');
+    expect(processed.description).not.toContain('Contact us banner');
   });
 });
 
@@ -421,6 +425,56 @@ describe('yldfConfig', () => {
     expect(processed.description).toContain('highly motivated');
     expect(processed.description).toContain('advocacy');
     expect(processed.source).toBe('yldf');
+  });
+
+  it('processJob should use defaultImage when no per-job image found', async () => {
+    const detailHtml = `<html><body>
+      <div class="ql-editor read-mode"><p>Job content.</p></div>
+    </body></html>`;
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(detailHtml, { status: 200 })
+    );
+
+    const plugin = new ScraperPlugin(yldfConfig);
+    const job: JobItem = {
+      id: 'yldf-test',
+      title: 'Test Job',
+      company: 'YLDF',
+      link: 'https://erp.yldf.org/jobs/yldf/test-job',
+      pubDate: '',
+      imageUrl: null,
+      source: 'yldf',
+    };
+
+    const processed = await plugin.processJob(job);
+
+    expect(processed.imageUrl).toBe('https://erp.yldf.org/files/yldflogo96974f111f45.jpg');
+  });
+
+  it('processJob should not override existing image with defaultImage', async () => {
+    const detailHtml = `<html><body>
+      <div class="ql-editor read-mode"><p>Job content.</p></div>
+    </body></html>`;
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(detailHtml, { status: 200 })
+    );
+
+    const plugin = new ScraperPlugin(yldfConfig);
+    const job: JobItem = {
+      id: 'yldf-test',
+      title: 'Test Job',
+      company: 'YLDF',
+      link: 'https://erp.yldf.org/jobs/yldf/test-job',
+      pubDate: '',
+      imageUrl: 'https://example.com/custom-image.jpg',
+      source: 'yldf',
+    };
+
+    const processed = await plugin.processJob(job);
+
+    expect(processed.imageUrl).toBe('https://example.com/custom-image.jpg');
   });
 });
 

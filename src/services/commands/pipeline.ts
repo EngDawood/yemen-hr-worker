@@ -5,7 +5,7 @@
 import type { Env } from '../../types';
 import type { InlineKeyboardMarkup } from '../../types/telegram';
 import { sendTextMessage, sendPhotoMessage, sendMessageWithId, editMessageText } from '../telegram';
-import { getAllSources, getSource, getSourceEntries } from '../sources/registry';
+import { getAllSources, getEnabledSources, getSource, getSourceEntries } from '../sources/registry';
 import { getSourcesFromDB } from '../storage';
 import { summarizeJob } from '../ai';
 import { formatTelegramMessage } from '../../utils/format';
@@ -20,9 +20,9 @@ import type { CommandResult } from './kv';
  * ⏳ pending → ✅ success / ⚠️ no jobs / ❌ error per source.
  */
 export async function handleTest(env: Env, adminChatId: string, sourceName?: string): Promise<void> {
+  // Default to enabled sources only; allow any source when explicitly named
   const allPlugins = getAllSources();
 
-  // Filter to specific source if requested
   if (sourceName) {
     const validNames = allPlugins.map(p => p.name) as string[];
     if (!validNames.includes(sourceName)) {
@@ -34,7 +34,7 @@ export async function handleTest(env: Env, adminChatId: string, sourceName?: str
 
   const plugins = sourceName
     ? allPlugins.filter(p => p.name === sourceName)
-    : allPlugins;
+    : getEnabledSources();
 
   // Track status per source: null = pending, string = result line
   const statuses: Map<string, string | null> = new Map();

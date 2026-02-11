@@ -98,8 +98,10 @@ export const qtbConfig: ScraperSourceConfig = {
   },
   defaultCompany: 'بنك القطيبي الإسلامي',
   detailPage: {
-    descriptionSelector: '.container',
-    cleanupSelectors: ['nav', 'footer', 'script', 'style'],
+    descriptionSelector: '.container[dir="rtl"]',
+    cleanupSelectors: ['nav', 'footer', 'script', 'style', '#alert-message', '#pre-loader', '.w-nav', '.section.no-padding'],
+    // QTB has malformed HTML: <h1>...</h2> — fix before parsing
+    htmlTransform: (html) => html.replace(/<\/h2>/g, '</h1>'),
   },
 };
 
@@ -128,6 +130,7 @@ export const yldfConfig: ScraperSourceConfig = {
     return match ? `yldf-${match[1]}` : `yldf-${link}`;
   },
   defaultCompany: 'Youth Leadership Development Foundation',
+  defaultImage: 'https://erp.yldf.org/files/yldflogo96974f111f45.jpg',
   detailPage: {
     descriptionSelector: '.ql-editor.read-mode',
   },
