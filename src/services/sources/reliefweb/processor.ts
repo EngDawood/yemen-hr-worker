@@ -8,6 +8,7 @@
 
 import type { JobItem, ProcessedJob } from '../../../types';
 import { decodeHtmlEntities, cleanWhitespace } from '../../../utils/html';
+import { matchCategoryFromRaw } from '../../ai-parse';
 
 /** ReliefWeb RSS feed logo (256x256 PNG) — fallback when RSS items have no image */
 const RELIEFWEB_LOGO_URL =
@@ -31,6 +32,11 @@ export function processReliefWebJob(job: JobItem): ProcessedJob {
   // Extract "How to apply" section
   const { howToApply, applicationLinks } = extractHowToApply(html);
 
+  // Match job-type category from RSS <category> tags (filters out country/org)
+  const category = job.categories
+    ? matchCategoryFromRaw(job.categories, 'reliefweb')
+    : undefined;
+
   // Clean HTML to plain text
   const description = cleanReliefWebHTML(html);
 
@@ -45,6 +51,7 @@ export function processReliefWebJob(job: JobItem): ProcessedJob {
     howToApply: howToApply || undefined,
     applicationLinks: applicationLinks.length > 0 ? applicationLinks : undefined,
     source: 'reliefweb',
+    category,
   };
 }
 

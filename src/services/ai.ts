@@ -7,7 +7,7 @@ import type { Env, ProcessedJob } from '../types';
 import { delay } from '../utils/format';
 import { stripMarkdown } from '../utils/html';
 import { buildJobHeader, buildNoAIFallback, buildApplyContext } from './ai-format';
-import { VALID_CATEGORIES_AR, extractCategoryFromAIResponse, removeCategoryLine } from './ai-parse';
+import { getValidCategoriesForSource, extractCategoryFromAIResponse, classifyByKeywords, removeCategoryLine } from './ai-parse';
 import { getPromptConfig, getPromptTemplate, renderTemplate } from './ai-prompts';
 import { getSetting } from './storage';
 import { DEFAULT_SOURCE } from './sources/registry';
@@ -128,10 +128,12 @@ async function callWorkersAI(
       // Clean any markdown formatting and remove preamble
       let cleanedText = stripMarkdown(text);
 
-      // Remove any preamble before the actual content (starts with 📋)
+      // Remove any preamble before the actual content (starts with 🏷️ category or 📋)
+      const categoryStart = cleanedText.indexOf('🏷️');
       const contentStart = cleanedText.indexOf('📋');
-      if (contentStart > 0) {
-        cleanedText = cleanedText.substring(contentStart);
+      const start = categoryStart >= 0 ? categoryStart : contentStart;
+      if (start > 0) {
+        cleanedText = cleanedText.substring(start);
       }
 
       // Combine pre-built header with AI-generated content
@@ -172,8 +174,8 @@ export async function summarizeJob(
   // Only include apply context when source actually provides apply data
   const applyContext = promptConfig.includeHowToApply ? buildApplyContext(job) : '';
 
-  // Build category instruction for AI
-  const categoryList = VALID_CATEGORIES_AR.join('، ');
+  // Build category instruction for AI (source-specific categories)
+  const categoryList = getValidCategoriesForSource(source).join('، ');
   const categorySection = hasCategory
     ? '' // Category already known, don't ask AI to classify
     : `\n🏷️ الفئة: [اختر واحدة فقط من: ${categoryList}]\n`;
@@ -217,12 +219,13 @@ export async function summarizeJob(
   const aiModel = await getAIModel(env);
   const rawSummary = await callWorkersAI(env.AI, prompt, job, header, source, aiModel);
 
-  // Determine category
+  // Determine category: pre-existing → AI output → keyword fallback
   let category: string;
   if (hasCategory) {
     category = job.category!;
   } else {
-    category = extractCategoryFromAIResponse(rawSummary);
+    category = extractCategoryFromAIResponse(rawSummary, source)
+      || classifyByKeywords(job.title, job.description, source);
   }
 
   let summary = removeCategoryLine(rawSummary);

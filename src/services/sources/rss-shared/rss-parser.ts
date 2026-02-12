@@ -189,6 +189,11 @@ function parseRSSItems(
 
     const description = item.description || '';
 
+    // Extract RSS <category> tags (may be single string or array)
+    const categories = item.category
+      ? (Array.isArray(item.category) ? item.category : [item.category])
+      : undefined;
+
     return {
       id,
       title,
@@ -198,6 +203,7 @@ function parseRSSItems(
       imageUrl,
       description,
       source,
+      categories,
     };
   });
 }
