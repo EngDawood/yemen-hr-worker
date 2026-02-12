@@ -29,6 +29,7 @@ export interface JobItem {
   source?: string; // Job source identifier (validated at registry level)
   howToApply?: string; // How to apply instructions
   applicationLinks?: string[]; // Application URLs, emails, phones
+  categories?: string[]; // Raw category tags from RSS/source (country, org, job type mixed)
 }
 
 export interface ProcessedJob {
