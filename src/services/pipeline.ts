@@ -162,14 +162,55 @@ export async function processJobs(
       return { processed: 0, posted: 0, skipped: 0, failed: 0 };
     }
 
-    // 2. Sort by date (oldest first for FIFO) and limit
-    const sortedJobs = allJobs.sort((a, b) =>
-      new Date(a.pubDate).getTime() - new Date(b.pubDate).getTime()
-    );
-    const jobsToProcess = sortedJobs.slice(0, maxJobs);
+    // 2. Per-source fair share: distribute maxJobs quota evenly across sources
+    const jobsBySource = new Map<string, JobItem[]>();
+    for (const job of allJobs) {
+      const src = job.source || DEFAULT_SOURCE;
+      if (!jobsBySource.has(src)) jobsBySource.set(src, []);
+      jobsBySource.get(src)!.push(job);
+    }
+    for (const jobs of jobsBySource.values()) {
+      jobs.sort((a, b) => new Date(a.pubDate).getTime() - new Date(b.pubDate).getTime());
+    }
+
+    const numSources = jobsBySource.size;
+    const baseShare = Math.floor(maxJobs / numSources);
+    let remaining = maxJobs;
+
+    // First pass: give each source min(baseShare, their job count)
+    const allocations = new Map<string, number>();
+    for (const [src, jobs] of jobsBySource) {
+      const alloc = Math.min(baseShare, jobs.length);
+      allocations.set(src, alloc);
+      remaining -= alloc;
+    }
+    // Second pass: distribute remaining slots to sources with excess
+    for (const [src, jobs] of jobsBySource) {
+      if (remaining <= 0) break;
+      const current = allocations.get(src)!;
+      const extra = Math.min(remaining, jobs.length - current);
+      if (extra > 0) {
+        allocations.set(src, current + extra);
+        remaining -= extra;
+      }
+    }
+
+    // Build final list + count deferred jobs as skipped
+    const jobsToProcess: JobItem[] = [];
+    for (const [src, jobs] of jobsBySource) {
+      const alloc = allocations.get(src)!;
+      jobsToProcess.push(...jobs.slice(0, alloc));
+      const dropped = jobs.length - alloc;
+      if (dropped > 0) {
+        const stats = sourceStats.get(src);
+        if (stats) stats.skipped += dropped;
+        skipped += dropped;
+        console.log(`${src}: ${dropped} jobs deferred (quota: ${alloc}/${jobs.length})`);
+      }
+    }
 
     if (allJobs.length > maxJobs) {
-      console.log(`Limiting to ${maxJobs} jobs (${allJobs.length - maxJobs} will be processed next hour)`);
+      console.log(`Fair share: ${maxJobs} quota across ${numSources} sources (${allJobs.length - jobsToProcess.length} deferred)`);
     }
 
     for (const job of jobsToProcess) {
